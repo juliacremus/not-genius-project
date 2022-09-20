@@ -19,8 +19,11 @@ rjmp read_from_user
 
      N_SIG_USER: .byte 1  ; número de entradas que o usuário entrou
      user_sig_array: .byte 10  ; tamanho da array que conterá os sinais do usuário
+
+     last_led_turned_on: .byte 1  ; variavel pra armazenar a mascara do último pino ligado
 .cseg
 
+; Initialize stack
 .macro initialize_stack
        ldi R16, HIGH(RAMEND)
        out SPH, R16
@@ -28,6 +31,7 @@ rjmp read_from_user
        out SPL, R16
 .endmacro
 
+; Subrotinas para configuração
 config_leds:
 
             ; !!! Ainda não acabado !!!!
@@ -47,7 +51,7 @@ config_buttons:
 
                ; Configura a porta D para receber os quatro botões
 
-               ldi R16, (1 << PD3) | (1 << PD0) | (1 << PD2) | (1 << PD6)
+               ldi R16, (1 << PD0) | (1 << PD1) | (1 << PD2) | (1 << PD3)
                out DDRD, R16
                ret
 
@@ -101,114 +105,118 @@ config_user_pointer:
 
                     ret
 
-turn_on_led:
-
-            ; Clear counter/timer
-            clr R16
-            out TCNT0, R16
-
-            ; Configure Clear OC0A on compare match AND CTC Mode
-            ldi R16, (1 << COM0A1) | (0 << COM0A0) | (1 << WGM01) | (0 << WGM00)
-            out TCCR0A, R16
-
-            ; Configure prescaler to clk/1024
-            ldi R16, (1 << CS02) | (0 << CS01) | (1 << CS00)
-            out TCCR0B, R16
-
-            ; Configure max value of counter
-            ldi R16, 0xFF
-            out OCR0A, R16
-
-            ret
-
-
+; Subrotinas para controle dos LEDs
 check_ng_limit:
-               ; Subrotina para verificação do comprimento da entrada
 
+          ; Subrotina para verificação do comprimento da entrada
 
-               lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
-               cpi R16, 0x10 ; Tamanho máximo = 10
-               brne get_random ; Se N_RANDOM_SIG != 10 continua
+          lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
+          cpi R16, 0x10 ; Tamanho máximo = 10
+          brne get_random ; Se N_RANDOM_SIG != 10 continua
 
-               call reset  ; se igual reseta os valores
+          call reset  ; se igual reseta os valores
 
+          ret
 
 get_random:
 
-           ; Subrotina para ler da parte do Leo e adicionar na
-           ; array
+          ; Subrotina para ler da parte do Leo e adicionar na
+          ; array
 
-           clr R16
-           clr R17
-
-
-           ; Lê o valor e adiciona na not_genius_array
-           ; Aqui trocar para a leitura da parte do codigo do leo
-
-           ldi R16, 0x01
-           st X+, R16
+          clr R16
+          clr R17
 
 
-           ; Lê o valor atual da quantidade de sinais e incrementa
+          ; Lê o valor e adiciona na not_genius_array
+          ; Aqui trocar para a leitura da parte do codigo do leo
 
-           lds R17, N_RANDOM_SIG
-           inc R17
-           sts N_RANDOM_SIG, R17
+          ldi R16, 0x01
+          st X+, R16 
 
 
-           ret
+          ; Lê o valor atual da quantidade de sinais e incrementa
+
+          lds R17, N_RANDOM_SIG
+          inc R17
+          sts N_RANDOM_SIG, R17
+
+
+          ret
+
+turn_on_led:
+
+          ; Função para ligar o LED
+
+          lds R23, last_led_turned_on
+          out PORTC, R23
+
+          call keep_led_on  ; delay pra manter o LED ligado
+
+          clr R23
+          out PORTC, R23 
+
+          ret
+
+loop_in_signals:
+          ; i == size ? break : keep
+          cp R18, R19
+          breq get_out
+
+          ; carrega o valor da array do jogo, coloca em uma variavel de memoria
+          ld R20, X+ ; array[n]
+          sts last_led_turned_on, R20  
+
+          ; mantem o led acesso por um tempo
+          call turn_on_led
+
+          ; continua no loop até finalizar
+          inc R18
+          rjmp loop_in_signals
+
+          ret
+
+          get_out:
+               ret
 
 send_to_user:
+          clr R18
+          lds R19, N_RANDOM_SIG
 
-             ; Função para ligar o LED
-
-             ; Retorna o último valor da array pro usário
-
-             ret
+          call loop_in_signals
 
 read_from_user:
 
-               ; Função de armazenamento dos valores do usuário
+          ; Função de armazenamento dos valores do usuário
 
-               ; Algortimo:
+          ; define as mascaras dos pinos dos botoes:
+          ; em ordem 0, 1, 2 e 3 
+          ldi R16, 0b00000001
+          ldi R17, 0b00000010
+          ldi R18, 0b00000100
+          ldi R19, 0b00001000
 
-               ; - Armazena a entrada do usuário em uma lista de entradas
-               ; - Se N_SIG_USER é menor que N_RANDOM_SIG espera mais entradas (talvez seja interessante ter um LED de espera)
-               ; - Se já chegou ao ponto certo desliga a luz de espera e verifica se tá certo
+          in R20, PIND  ; faz a leitura da porta D
 
+          ; armazena a intersecção
+          
+          ; acho que não precisaria isso, mas vou manter pra gnt ter maior controle do que
+          ; tá sendo encaminhado
 
-; READ_PORTD: vai ser parecido com isso que preciso, só que teno quatro botoes
+          and R16, R20
+          and R17, R20
+          and R18, R20
+          and R19, R20
 
-           ; define as mascaras dos pinos
-           ldi R20, 0b00001000 ; a=3
-           ldi R21, 0b00000001 ; b=0
-           ldi R22, 0b00000100 ; c=2
+          ; combina valores no R23
 
-           in R18, PIND  ; faz a leitura da porta D
+          clr R23
 
-           ; armazena a intersecção
-           and R20, R18
-           and R21, R18
-           and R22, R18
+          or R23, R16
+          or R23, R17
+          or R23, R18
+          or R23, R19
 
-           ; a: 3 -> 2, b: 0 -> 1, c: 2 -> 0
-
-           lsr R20
-           lsl R21
-           lsr R22
-           lsr R22
-
-           ; combina valores no R23
-
-           clr R23
-
-           or R23, R20
-           or R23, R21
-           or R23, R22
-
-           sts btn_value, R23 ; coloca na memoria o valor
-
-           ret
+          st X+, R23  ; adiciona no fim da array not_genius_array
 
 
 
@@ -234,9 +242,62 @@ check_sequence:
                get_out:
                         ret
 
+keep_led_on:
+     ; Delay utilizado para mostrar o LED ligado para o usuário
+
+	; save R22, R23 and R24 to Stack
+	push R22
+	push R23
+	push R24
+
+	; max counter
+	ldi R21, 0xA0
+
+	; initialize delay counters
+	LDI R22, 0x00
+	LDI R23, 0x00
+	LDI R24, 0x00
+
+	; initializes first delay
+	first_delay:
+		inc R22
+		; initializes second delay
+		second_delay:
+			inc R23
+			; initializes third delay
+			third_delay:
+				inc R24
+				cp R24, R21
+				brne third_delay ; if third delay counter R24 is different from max counter R21 repeat
+				ldi R24, 0x00 ; else reset third delay counter R24
+
+			cp R23, R21
+			brne second_delay ; if second delay counter R23 is different from max counter R21 repeat
+			ldi R23, 0x00 ; else reset second delay counter R23
+
+		cp R22, R21
+		brne first_delay ; if first delay counter R22 is different from max counter R21 repeat
+		ldi R22, 0x00 ; else reset second delay counter R22
+
+	; retrieve R23 and R24 to Stack
+	pop R24
+	pop R23
+	pop R22
+
+	ret
+
 delay:
 
+     ; delay to user can see things 
+
 reset:
+     ; reset memory values
+
+     ; reset number of random signals sent
+     clr R16
+     sts N_RANDOM_SIG, R16
+
+     ; remove elements of array
 
 time_to_think: 
 
@@ -267,12 +328,14 @@ MAIN:
 
      ; Inicia o processo
      NOT_GENIUS_GAME:
-                     call get_random
-                     call send_to_user
-                     call read_from_user
-                     call check_sequence
+                    call check_ng_limit
+                    call send_to_user
+     
+                    call check_sequence
 
-                     rjmp NOT_GENIUS_GAME
+                    rjmp NOT_GENIUS_GAME
+
+
 
 
 LOOP: rjmp LOOP
