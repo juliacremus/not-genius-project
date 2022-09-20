@@ -34,15 +34,13 @@ rjmp read_from_user
 ; Subrotinas para configuração
 config_leds:
 
-            ; !!! Ainda não acabado !!!!
-
             ; configura as portas em que os LEDs vão estar conectados
 
-            ldi r16, (1 << PC2) | (1 << PC1) | ( 1 << PC0)
-            ldi r19, 0x00  ; seta o estado inicial como desligado
+            ldi r16, (1 << PC3) | (1 << PC2) | (1 << PC1) | ( 1 << PC0)
+            clr R19  ; seta o estado inicial como desligado
 
             out DDRC, R16
-            out PORTB, R19
+            out PORTC, R19
 
             ret
 
@@ -64,46 +62,38 @@ config_ng_pointer:
 
 config_timer:
 
-             ; Clear counter
-             clr R16
-             sts TCNT1L, R16
-             sts TCNT1H, R16
+          ; Clear counter
+          clr R16
+          sts TCNT1L, R16
+          sts TCNT1H, R16
 
-             ; Configure Clock Selection
-             ldi R16, (1 << CS12) | (0 << CS11) | (1 << CS10)
-             sts TCCR1B, R16
+          ; Configure Clock Selection
+          ldi R16, (1 << CS12) | (0 << CS11) | (1 << CS10)
+          sts TCCR1B, R16
 
-             ; Configure CTC
-             ldi R16, (1 << COM1A1) | (0 << COM1A0) | (1 << WGM12)
-             sts TCCR1A, R16
+          ; Configure CTC
+          ldi R16, (1 << COM1A1) | (0 << COM1A0) | (1 << WGM12)
+          sts TCCR1A, R16
 
-             ; configure OCR1A
-             ; utilizar isso pra mostrar para o usuario quando errou talvez
-             ldi R16, 0x7B ;
-             ldi R17, 0x06
-             sts OCR1AL, R16
-             sts OCR1AH, R16
+          ; configure OCR1A
+          ; utilizar isso pra mostrar para o usuario quando errou talvez
+          ldi R16, 0x7B ;
+          ldi R17, 0x06
+          sts OCR1AL, R16
+          sts OCR1AH, R16
 
-             ; configure interruption
-             ldi r16, (1 << TOIE1)
-             sts TIMSK1, R16
+          ; configure interruption
+          ldi r16, (1 << TOIE1)
+          sts TIMSK1, R16
 
-             ret
-
-
-
-
+          ret
 
 config_user_pointer:
 
-                    ldi R18, 0x00 ; inicia contador p/ verificacao ds elementos
-                    lds R19, N_RANDOM_SIG ; armazena o tamanho da array
+          ldi YL, LOW(user_sig_array)
+          ldi YH, HIGH(user_sig_array)
 
-
-                    ldi YL, LOW(user_sig_array)
-                    ldi YH, HIGH(user_sig_array)
-
-                    ret
+          ret
 
 ; Subrotinas para controle dos LEDs
 check_ng_limit:
@@ -112,11 +102,14 @@ check_ng_limit:
 
           lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
           cpi R16, 0x10 ; Tamanho máximo = 10
-          brne get_random ; Se N_RANDOM_SIG != 10 continua
-
-          call reset  ; se igual reseta os valores
+          breq jmp_reset ; Se N_RANDOM_SIG != 10 continua
+           
+          call get_random
 
           ret
+
+          jmp_reset:
+               call reset  ; se igual reseta os valores
 
 get_random:
 
@@ -130,9 +123,9 @@ get_random:
           ; Lê o valor e adiciona na not_genius_array
           ; Aqui trocar para a leitura da parte do codigo do leo
 
-          ldi R16, 0x01
-          st X+, R16 
+          inc R25
 
+          st X+, R25 
 
           ; Lê o valor atual da quantidade de sinais e incrementa
 
@@ -150,7 +143,7 @@ turn_on_led:
           lds R23, last_led_turned_on
           out PORTC, R23
 
-          call keep_led_on  ; delay pra manter o LED ligado
+          ;call keep_led_on  ; delay pra manter o LED ligado
 
           clr R23
           out PORTC, R23 
@@ -164,6 +157,7 @@ loop_in_signals:
 
           ; carrega o valor da array do jogo, coloca em uma variavel de memoria
           ld R20, X+ ; array[n]
+
           sts last_led_turned_on, R20  
 
           ; mantem o led acesso por um tempo
@@ -175,48 +169,57 @@ loop_in_signals:
 
           ret
 
+
           get_out:
                ret
 
 send_to_user:
-          clr R18
+          ldi R18, 0x00
           lds R19, N_RANDOM_SIG
+
+          call config_ng_pointer
 
           call loop_in_signals
 
+          ret
+
 read_from_user:
 
-          ; Função de armazenamento dos valores do usuário
+     ; Função de armazenamento dos valores do usuário
 
-          ; define as mascaras dos pinos dos botoes:
+     ; define as mascaras dos pinos dos botoes:
+     ; em ordem 0, 1, 2 e 3 
           ; em ordem 0, 1, 2 e 3 
-          ldi R16, 0b00000001
-          ldi R17, 0b00000010
-          ldi R18, 0b00000100
-          ldi R19, 0b00001000
+     ; em ordem 0, 1, 2 e 3 
+          ; em ordem 0, 1, 2 e 3 
+     ; em ordem 0, 1, 2 e 3 
+     ldi R16, 0b00000001
+     ldi R17, 0b00000010
+     ldi R18, 0b00000100
+     ldi R19, 0b00001000
 
-          in R20, PIND  ; faz a leitura da porta D
+     in R20, PIND  ; faz a leitura da porta D
 
-          ; armazena a intersecção
-          
-          ; acho que não precisaria isso, mas vou manter pra gnt ter maior controle do que
-          ; tá sendo encaminhado
+     ; armazena a intersecção
+     
+     ; acho que não precisaria isso, mas vou manter pra gnt ter maior controle do que
+     ; tá sendo encaminhado
 
-          and R16, R20
-          and R17, R20
-          and R18, R20
-          and R19, R20
+     and R16, R20
+     and R17, R20
+     and R18, R20
+     and R19, R20
 
-          ; combina valores no R23
+     ; combina valores no R23
 
-          clr R23
+     clr R23
 
-          or R23, R16
-          or R23, R17
-          or R23, R18
-          or R23, R19
+     or R23, R16
+     or R23, R17
+     or R23, R18
+     or R23, R19
 
-          st X+, R23  ; adiciona no fim da array not_genius_array
+     st X+, R23  ; adiciona no fim da array not_genius_array
 
 
 
@@ -227,7 +230,7 @@ check_sequence:
                call config_user_pointer
 
                cp R18, R19  ; i == N_RANDOM_SIG ? break : keep
-               breq get_out
+               breq jmp_pls
 
                ld R20, X  ; sinal do not genius
                ld R21, Y  ; sinal do usuario
@@ -239,7 +242,7 @@ check_sequence:
 
                ret
 
-               get_out:
+               jmp_pls:
                         ret
 
 keep_led_on:
@@ -299,16 +302,16 @@ reset:
 
      ; remove elements of array
 
-time_to_think: 
+; time_to_think: 
 
-     ; talvez eu precise dessa flag pra deixar o codigo ignorando as entradas do usuario
-     ; enquanto o jogo pensa um pouco
+;      ; talvez eu precise dessa flag pra deixar o codigo ignorando as entradas do usuario
+;      ; enquanto o jogo pensa um pouco
 
-     lds R16, IGNORE_USER ; Carrega o tamanho atual em R16
-     cpi R16, 0x00 ;
-     breq get_random ; 
+;      lds R16, IGNORE_USER ; Carrega o tamanho atual em R16
+;      cpi R16, 0x00 ;
+;      breq get_random ; 
 
-     ret 
+;      ret 
 
 MAIN:
      ; Realiza as configurações necessárias
@@ -326,12 +329,19 @@ MAIN:
      ser R16
      sts IGNORE_USER, R16
 
+     ldi R25, 0x00
+
+
+     clr R16
+     sts N_RANDOM_SIG, R16
+
+     sts N_SIG_USER, R16
+
+
      ; Inicia o processo
      NOT_GENIUS_GAME:
                     call check_ng_limit
                     call send_to_user
-     
-                    call check_sequence
 
                     rjmp NOT_GENIUS_GAME
 
