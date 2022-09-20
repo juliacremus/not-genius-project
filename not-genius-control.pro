@@ -1,8 +1,8 @@
 /avr_sim_project_file
 /home/julia/ufrgs/Embarcados/not-genius/not-genius-control.asm
 mainasm=not-genius-control.asm
-file=not-genius-control.lst,288,1,210
-file=not-genius-control.asm,135,12,146
+file=not-genius-control.lst,280,47,307
+file=not-genius-control.asm,190,38,211
 clock=1000000, Div8
 device-type=ATmega328P
 device-number=76
