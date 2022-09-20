@@ -1,0 +1,325 @@
+gavrasm Gerd's AVR assembler version 5.1 (C)2021 by DG4FAC
+----------------------------------------------------------
+
+Path:        /home/julia/ufrgs/Embarcados/not-genius/
+Source file: not-genius-control.asm
+Hex file:    not-genius-control.hex
+Eeprom file: not-genius-control.eep
+Compiled:    20.09.2022, 09:54:08
+Pass:        2
+
+     1: .device ATmega328p
+     2: 
+     3: ; Reset
+     4: .org 0x00
+     5: 000000   C078  rjmp MAIN
+     6: 
+     7: ; counter overflow
+     8: .org 0x001A
+     9: 00001A   C040  rjmp read_from_user
+    10: 
+    11: .dseg
+    12:      .org SRAM_START
+    13: 
+    14:      N_RANDOM_SIG: .byte 1  ; quantidade de sinais já encaminhados
+    15:      not_genius_array: .byte 10  ; tamanho da array que conterá os sinais (o jogo acaba quando L > 100)
+    16: 
+    17:      N_SIG_USER: .byte 1  ; número de entradas que o usuário entrou
+    18:      user_sig_array: .byte 10  ; tamanho da array que conterá os sinais do usuário
+    19: .cseg
+    20: 
+    21: .macro initialize_stack
+    22:        ldi R16, HIGH(RAMEND)
+    23:        out SPH, R16
+    24:        ldi R16, LOW(RAMEND)
+    25:        out SPL, R16
+    26: .endmacro
+    27: 
+    28: config_leds:
+    29: 
+    30:             ; !!! Ainda não acabado !!!!
+    31: 
+    32:             ; configura as portas em que os LEDs vão estar conectados
+    33: 
+    34: 00001B   E007  ldi r16, (1 << PC2) | (1 << PC1) | ( 1 << PC0)
+    35: 00001C   E030  ldi r19, 0x00  ; seta o estado inicial como desligado
+    36: 
+    37: 00001D   B907  out DDRC, R16
+    38: 00001E   B935  out PORTB, R19
+    39: 
+    40: 00001F   9508  ret
+    41: 
+    42: config_buttons:
+    43: 
+    44:                ; Configura a porta D para receber os quatro botões
+    45: 
+    46: 000020   E40D  ldi R16, (1 << PD3) | (1 << PD0) | (1 << PD2) | (1 << PD6)
+    47: 000021   B90A  out DDRD, R16
+    48: 000022   9508  ret
+    49: 
+    50: config_ng_pointer:
+    51: 
+    52: 000023   E0A1  ldi XL, LOW(not_genius_array)
+    53: 000024   E0B1  ldi XH, HIGH(not_genius_array)
+    54: 
+    55: 000025   9508  ret
+    56: 
+    57: config_timer:
+    58: 
+    59:              ; Clear counter
+    60: 000026   2700  clr R16
+    61: 000027   9300  sts TCNT1L, R16
+        000028   0084
+    62: 000029   9300  sts TCNT1H, R16
+        00002A   0085
+    63: 
+    64:              ; Configure Clock Selection
+    65: 00002B   E005  ldi R16, (1 << CS12) | (0 << CS11) | (1 << CS10)
+    66: 00002C   9300  sts TCCR1B, R16
+        00002D   0081
+    67: 
+    68:              ; Configure CTC
+    69: 00002E   E808  ldi R16, (1 << COM1A1) | (0 << COM1A0) | (1 << WGM12)
+    70: 00002F   9300  sts TCCR1A, R16
+        000030   0080
+    71: 
+    72:              ; configure OCR1A
+    73:              ; utilizar isso pra mostrar para o usuario quando errou talvez
+    74: 000031   E70B  ldi R16, 0x7B ;
+    75: 000032   E016  ldi R17, 0x06
+    76: 000033   9300  sts OCR1AL, R16
+        000034   0088
+    77: 000035   9300  sts OCR1AH, R16
+        000036   0089
+    78: 
+    79:              ; configure interruption
+    80: 000037   E001  ldi r16, (1 << TOIE1)
+    81: 000038   9300  sts TIMSK1, R16
+        000039   006F
+    82: 
+    83: 00003A   9508  ret
+    84: 
+    85: 
+    86: turn_on_led:
+    87: 
+    88:             ; Clear counter/timer
+    89: 00003B   2700  clr R16
+    90: 00003C   BD06  out TCNT0, R16
+    91: 
+    92:             ; Configure Clear OC0A on compare match AND CTC Mode
+    93: 00003D   E802  ldi R16, (1 << COM0A1) | (0 << COM0A0) | (1 << WGM01) | (0 << WGM00)
+    94: 00003E   BD04  out TCCR0A, R16
+    95: 
+    96:             ; Configure prescaler to clk/1024
+    97: 00003F   E005  ldi R16, (1 << CS02) | (0 << CS01) | (1 << CS00)
+    98: 000040   BD05  out TCCR0B, R16
+    99: 
+   100:             ; Configure max value of counter
+   101: 000041   EF0F  ldi R16, 0xFF
+   102: 000042   BD07  out OCR0A, R16
+   103: 
+   104: 000043   9508  ret
+   105: 
+   106: config_user_pointer:
+   107: 
+   108: 000044   E020  ldi R18, 0x00 ; inicia contador p/ verificacao ds elementos
+   109: 000045   9130  lds R19, N_RANDOM_SIG ; armazena o tamanho da array
+        000046   0100
+   110: 
+   111: 
+   112: 000047   E0CC  ldi YL, LOW(user_sig_array)
+   113: 000048   E0D1  ldi YH, HIGH(user_sig_array)
+   114: 
+   115: 000049   9508  ret
+   116: 
+   117: 
+   118: 
+   119: check_ng_limit:
+   120:                ; Subrotina para verificação do comprimento da entrada
+   121: 
+   122: 
+   123: 00004A   9100  lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
+        00004B   0100
+   124: 00004C   3100  cpi R16, 0x10 ; Tamanho máximo = 10
+   125: 00004D   F411  brne get_random ; Se N_RANDOM_SIG != 10 continua
+   126: 
+   127: 00004E   940E  call reset  ; se igual reseta os valores
+        00004F   0079
+   128: 
+   129: 
+   130: get_random:
+   131: 
+   132:            ; Subrotina para ler da parte do Leo e adicionar na
+   133:            ; array
+   134: 
+   135: 000050   2700  clr R16
+   136: 000051   2711  clr R17
+   137: 
+   138: 
+   139:            ; Lê o valor e adiciona na not_genius_array
+   140:            ; Aqui trocar para a leitura da parte do codigo do leo
+   141: 
+   142: 000052   E001  ldi R16, 0x01
+   143: 000053   930D  st X+, R16
+   144: 
+   145: 
+   146:            ; Lê o valor atual da quantidade de sinais e incrementa
+   147: 
+   148: 000054   9110  lds R17, N_RANDOM_SIG
+        000055   0100
+   149: 000056   9513  inc R17
+   150: 000057   9310  sts N_RANDOM_SIG, R17
+        000058   0100
+   151: 
+   152: 
+   153: 000059   9508  ret
+   154: 
+   155: send_to_user:
+   156: 
+   157:              ; Função para ligar o LED
+   158: 
+   159:              ; Retorna o último valor da array pro usário
+   160: 
+   161: 00005A   9508  ret
+   162: 
+   163: read_from_user:
+   164: 
+   165:                ; Função de armazenamento dos valores do usuário
+   166: 
+   167:                ; Algortimo:
+   168: 
+   169:                ; - Armazena a entrada do usuário em uma lista de entradas
+   170:                ; - Se N_SIG_USER é menor que N_RANDOM_SIG espera mais entradas (talvez seja interessante ter um LED de espera)
+   171:                ; - Se já chegou ao ponto certo desliga a luz de espera e verifica se tá certo
+   172: 
+   173: 
+   174: ; READ_PORTD: vai ser parecido com isso que preciso, só que teno quatro botoes
+   175: 
+   176:            ; define as mascaras dos pinos
+   177: 00005B   E048  ldi R20, 0b00001000 ; a=3
+   178: 00005C   E051  ldi R21, 0b00000001 ; b=0
+   179: 00005D   E064  ldi R22, 0b00000100 ; c=2
+   180: 
+   181: 00005E   B129  in R18, PIND  ; faz a leitura da porta D
+   182: 
+   183:            ; armazena a intersecção
+   184: 00005F   2342  and R20, R18
+   185: 000060   2352  and R21, R18
+   186: 000061   2362  and R22, R18
+   187: 
+   188:            ; a: 3 -> 2, b: 0 -> 1, c: 2 -> 0
+   189: 
+   190: 000062   9546  lsr R20
+   191: 000063   0F55  lsl R21
+   192: 000064   9566  lsr R22
+   193: 000065   9566  lsr R22
+   194: 
+   195:            ; combina valores no R23
+   196: 
+   197: 000066   2777  clr R23
+   198: 
+   199: 000067   2B74  or R23, R20
+   200: 000068   2B75  or R23, R21
+   201: 000069   2B76  or R23, R22
+   202: 
+ ===> Error 007: Undefined constant, variable, label or device (BTN_VALUE)!
+      Line:            sts btn_value, R23 ; coloca na memoria o valor
+      File: /home/julia/ufrgs/Embarcados/not-genius/not-genius-control.asm, Line: 203
+ ===> Error 025: Expression of constant (BTN_VALUE) unreadable!
+      Line:            sts btn_value, R23 ; coloca na memoria o valor
+      File: /home/julia/ufrgs/Embarcados/not-genius/not-genius-control.asm, Line: 203
+   203: 00006A   9370  sts btn_value, R23 ; coloca na memoria o valor
+        00006B   0000
+   204: 
+   205: 00006C   9508  ret
+   206: 
+   207: 
+   208: 
+   209: check_sequence:
+   210: 
+   211:                ; Função que verifica a entrada do usuário
+   212: 
+   213: 00006D   940E  call config_user_pointer
+        00006E   0044
+   214: 
+   215: 00006F   1723  cp R18, R19  ; i == N_RANDOM_SIG ? break : keep
+   216: 000070   F039  breq get_out
+   217: 
+   218: 000071   914C  ld R20, X  ; sinal do not genius
+   219: 000072   8158  ld R21, Y  ; sinal do usuario
+   220: 
+   221: 000073   1745  cp R20, R21  ; compara os valores
+   222: 000074   F421  brne reset  ;
+   223: 
+   224: 000075   940E  call check_sequence
+        000076   006D
+   225: 
+   226: 000077   9508  ret
+   227: 
+   228:                get_out:
+   229: 000078   9508  ret
+   230: 
+   231: delay:
+   232: 
+   233: reset:
+   234: 
+   235: 
+   236: 
+   237: MAIN:
+   238: 
+   239:      ; Realiza as configurações necessárias
+   240:      initialize_stack
+   240: 000079   E008  ldi R16, HIGH(RAMEND)
+   240: 00007A   BF0E  out SPH, R16
+   240: 00007B   EF0F  ldi R16, LOW(RAMEND)
+   240: 00007C   BF0D  out SPL, R16
+   241: 
+   242:      ; Permite interrupções
+   243: 00007D   9478  sei
+   244: 
+   245:      ; Inicia o processo
+   246:      NOT_GENIUS_GAME:
+   247: 00007E   940E  call get_random
+        00007F   0050
+   248: 000080   940E  call send_to_user
+        000081   005A
+   249: 000082   940E  call read_from_user
+        000083   005B
+   250: 000084   940E  call check_sequence
+        000085   006D
+   251: 
+   252: 000086   CFF7  rjmp NOT_GENIUS_GAME
+   253: 
+   254: 
+   255: 000087   CFFF  rjmp LOOP
+   256: 
+
+List of symbols:
+Type nDef nUsed             Decimalval           Hexval Name
+  T     1     1                    171               AB ATMEGA328P
+  L     1     4                    256             0100 N_RANDOM_SIG
+  L     1     2                    257             0101 NOT_GENIUS_ARRAY
+  L     1     0                    267             010B N_SIG_USER
+  L     1     2                    268             010C USER_SIG_ARRAY
+  L     1     0                     27               1B CONFIG_LEDS
+  L     1     0                     32               20 CONFIG_BUTTONS
+  L     1     0                     35               23 CONFIG_NG_POINTER
+  L     1     0                     38               26 CONFIG_TIMER
+  L     1     0                     59               3B TURN_ON_LED
+  L     1     1                     68               44 CONFIG_USER_POINTER
+  L     1     0                     74               4A CHECK_NG_LIMIT
+  L     1     3                     80               50 GET_RANDOM
+  L     1     1                     90               5A SEND_TO_USER
+  L     1     3                     91               5B READ_FROM_USER
+  L     1     2                    109               6D CHECK_SEQUENCE
+  L     1     2                    120               78 GET_OUT
+  L     1     0                    121               79 DELAY
+  L     1     3                    121               79 RESET
+  L     1     2                    121               79 MAIN
+  L     1     2                    126               7E NOT_GENIUS_GAME
+  L     1     2                    135               87 LOOP
+  C     1     0                     22               16 NOW_Y
+  C     1     0                      9               09 NOW_M
+  C     1     0                     20               14 NOW_D
+  C     1     0                  44824             AF18 NOW_I
+Compilation aborted, 2 errors!

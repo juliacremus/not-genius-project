@@ -1,0 +1,25 @@
+gavrasm Gerd's AVR assembler version 5.1 (C)2021 by DG4FAC
+----------------------------------------------------------
+
+Path: /home/julia/ufrgs/Embarcados/not-genius/
+Source file: not-genius-control.asm
+Hex file:    not-genius-control.hex
+Eeprom file: not-genius-control.eep
+Compiled:    20.09.2022, 09:54:08
+Pass:        1
+gavrasm Gerd's AVR assembler version 5.1 (C)2021 by DG4FAC
+----------------------------------------------------------
+
+Path: /home/julia/ufrgs/Embarcados/not-genius/
+Source file: not-genius-control.asm
+Hex file:    not-genius-control.hex
+Eeprom file: not-genius-control.eep
+Compiled:    20.09.2022, 09:54:08
+Pass:        2
+ ===> Error 007: Undefined constant, variable, label or device (BTN_VALUE)!
+      Line:            sts btn_value, R23 ; coloca na memoria o valor
+      File: /home/julia/ufrgs/Embarcados/not-genius/not-genius-control.asm, Line: 203
+ ===> Error 025: Expression of constant (BTN_VALUE) unreadable!
+      Line:            sts btn_value, R23 ; coloca na memoria o valor
+      File: /home/julia/ufrgs/Embarcados/not-genius/not-genius-control.asm, Line: 203
+Compilation aborted, 2 errors!
