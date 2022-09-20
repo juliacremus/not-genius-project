@@ -185,35 +185,39 @@ send_to_user:
           ret
 
 read_from_user:
-
      ; Função de armazenamento dos valores do usuário
 
-     ; ; define as mascaras dos pinos dos botoes:
-     ; ldi R16, 0b00000001
-     ; ldi R17, 0b00000010
-     ; ldi R18, 0b00000100
-     ; ldi R19, 0b00001000
+     ; Veirifica se pode ignorar as entradas do usuario
+     lds R16, IGNORE_USER  
+     cpi R16, 0xff
+     breq ignore_user
 
-     ; in R20, PIND  ; faz a leitura da porta D
+     ; define as mascaras dos pinos dos botoes:
+     ldi R16, 0b00000001
+     ldi R17, 0b00000010
+     ldi R18, 0b00000100
+     ldi R19, 0b00001000
 
-     ; ; acho que não precisaria isso, mas vou manter pra gnt ter maior controle do que
-     ; ; tá sendo encaminhado
+     in R20, PIND  ; faz a leitura da porta D
 
-     ; and R16, R20
-     ; and R17, R20
-     ; and R18, R20
-     ; and R19, R20
+     ; acho que não precisaria isso, mas vou manter pra gnt ter maior controle do que
+     ; tá sendo encaminhado
 
-     ; ; combina valores no R23
+     and R16, R20
+     and R17, R20
+     and R18, R20
+     and R19, R20
 
-     ; clr R23
+     ; combina valores no R23
 
-     ; or R23, R16
-     ; or R23, R17
-     ; or R23, R18
-     ; or R23, R19
+     clr R23
 
-     ldi R23, 0x01
+     or R23, R16
+     or R23, R17
+     or R23, R18
+     or R23, R19
+
+     ; ldi R23, 0x01
 
      st Y+, R23  ; adiciona no fim da array user_sig_array
 
@@ -221,7 +225,10 @@ read_from_user:
      inc R17
      sts N_SIG_USER, R17
 
-     ret
+     ; ret
+
+     ignore_user: 
+          clr R16
 
 
 check_user_inputs:
@@ -377,7 +384,7 @@ MAIN:
      ser R16
      sts IGNORE_USER, R16
 
-     ldi R25, 0x00
+     ldi R25, 0x00  ; parte do codigo pra debugar
 
 
      clr R16
@@ -392,12 +399,20 @@ MAIN:
                     call send_to_user
 
                     call config_user_pointer
-                    
-                    ;call delay  ; espera um tempo até o usuário se decidir
 
-                    call read_from_user;
+                    ; entradas do usuário valem 
+                    clr R16
+                    sts IGNORE_USER, R16
+                    
+                    call delay  ; espera um tempo até o usuário se decidir
+
+                    ; call read_from_user  ; testes de funcionamento  
 
                     call check_user_inputs  ; checa os valores que ele entrou
+
+                    ; retorna a ignorar o usuario
+                    ser R16
+                    sts IGNORE_USER, R16
 
                     rjmp NOT_GENIUS_GAME
 

@@ -213,7 +213,7 @@ read_from_user:
      ; or R23, R18
      ; or R23, R19
 
-     ldi R23, 0x00
+     ldi R23, 0x01
 
      st Y+, R23  ; adiciona no fim da array user_sig_array
 
