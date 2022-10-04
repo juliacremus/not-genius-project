@@ -95,13 +95,15 @@ GenerateSequence:
 	push R19
 
 	; Gera primeira seed
-	call GenerateSeed
-	lds R16, lfsr_value
+	;call GenerateSeed
+	;lds R16, lfsr_value
+     ldi R16, 0b11011001 ; Manual seed para simulação
 	sts lfsr_value1, R16
 
 	; Gera segunda seed
-	call GenerateSeed
-	lds R16, lfsr_value
+	;call GenerateSeed
+	;lds R16, lfsr_value
+     ldi R16, 0b10001101 ; Manual seed para simulação
 	sts lfsr_value2, R16
 
 	ldi R16, 0b0 ; Tamanho atual da sequência gerada
