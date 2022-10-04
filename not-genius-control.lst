@@ -5,18 +5,18 @@ Path:        /home/julia/ufrgs/Embarcados/not-genius/
 Source file: not-genius-control.asm
 Hex file:    not-genius-control.hex
 Eeprom file: not-genius-control.eep
-Compiled:    20.09.2022, 18:20:50
+Compiled:    04.10.2022, 08:25:34
 Pass:        2
 
      1: .device ATmega328p
      2: 
      3: ; Reset
      4: .org 0x00
-     5: 000000   C0BB  rjmp MAIN
+     5: 000000   C193  rjmp MAIN
      6: 
      7: ; counter overflow
      8: .org 0x001A
-     9: 00001A   C04F  rjmp read_from_user
+     9: 00001A   C111  rjmp read_from_user
     10: 
     11: ; Configura variaveis da memoria
     12: .dseg
@@ -32,487 +32,864 @@ Pass:        2
     22: 
     23:      last_led_turned_on: .byte 1  ; variavel pra armazenar a mascara do último pino ligado
     24: 
-    25: .cseg
-    26: 
-    27: ; Initialize stack
-    28: .macro initialize_stack
-    29:        ldi R16, HIGH(RAMEND)
-    30:        out SPH, R16
-    31:        ldi R16, LOW(RAMEND)
-    32:        out SPL, R16
-    33: .endmacro
-    34: 
-    35: ; Subrotinas para configuração
-    36: config_leds:
-    37: 
-    38:             ; configura as portas em que os LEDs vão estar conectados
-    39: 
-    40: 00001B   E00F  ldi r16, (1 << PC3) | (1 << PC2) | (1 << PC1) | ( 1 << PC0)
-    41: 00001C   2733  clr R19  ; seta o estado inicial como desligado
-    42: 
-    43: 00001D   B907  out DDRC, R16
-    44: 00001E   B938  out PORTC, R19
-    45: 
-    46: 00001F   9508  ret
-    47: 
+    25: 	main_sequence: .byte 10 ; Sequência Principal
+    26: 	main_sequence_size: .byte 1 ; Tamanho da Sequência Principal
+    27: 	main_sequence_current_element: .byte 1 ; Elemento de sequência atual a ser mostrado
+    28: 	lfsr_value1: .byte 1 ; Seed para o LFSR 1
+    29: 	lfsr_value2: .byte 1 ; Seed para o LFSR 2
+    30: 	lfsr_value: .byte 1
+    31:      counter: .byte 1
+    32: .cseg
+    33: 
+    34: ; Initialize stack
+    35: .macro initialize_stack
+    36:        ldi R16, HIGH(RAMEND)
+    37:        out SPH, R16
+    38:        ldi R16, LOW(RAMEND)
+    39:        out SPL, R16
+    40: .endmacro
+    41: 
+    42: ;============================= SUBROTINAS DE CONFIGURAÇÃO =============================;
+    43: ConfigureAdc0:
+    44: 	; Configure AVcc
+    45: 	;ldi R16, (1 << REFS0)
+    46: 00001B   E400  ldi R16, 0b01000000
+    47: 00001C   9300  sts ADMUX, R16
+        00001D   007C
     48: 
-    49: config_buttons:
-    50: 
-    51:                ; Configura a porta D para receber os quatro botões
-    52: 
-    53: 000020   E00F  ldi R16, (1 << PD0) | (1 << PD1) | (1 << PD2) | (1 << PD3)
-    54: 000021   B90A  out DDRD, R16
-    55: 000022   9508  ret
-    56: 
-    57: config_ng_pointer:
-    58: 
-    59: 000023   E0A2  ldi XL, LOW(not_genius_array)
-    60: 000024   E0B1  ldi XH, HIGH(not_genius_array)
-    61: 
-    62: 000025   9508  ret
-    63: 
-    64: config_timer:
+    49: 	; Configure ADC Enable, Start Conversion, Auto Trigger Enable, Prescaler 1:32
+    50: 	;ldi R16, (1 << ADEN) | (1 << ADSC) | (1 << ADATE) | (1 << ADPS2) | (1 << ADPS0)
+    51: 00001E   EE05  ldi R16, 0b11100101
+    52: 00001F   9300  sts ADCSRA, R16
+        000020   007A
+    53: 
+    54: 	; Configure Duty cycle
+    55: 000021   2700  clr R16
+    56: 000022   9300  sts ADCSRB, R16
+        000023   007B
+    57: 
+    58: 000024   9508  ret
+    59: 
+    60: ConfigureTimer:
+    61: 	; Zera o contador
+    62: 000025   2700  clr R16
+    63: 000026   9300  sts TCNT1L, R16
+        000027   0084
+    64: 000028   9300  sts TCNT1H, R16
+        000029   0085
     65: 
-    66:           ; Clear counter
-    67: 000026   2700  clr R16
-    68: 000027   9300  sts TCNT1L, R16
-        000028   0084
-    69: 000029   9300  sts TCNT1H, R16
-        00002A   0085
-    70: 
-    71:           ; Configure Clock Selection
-    72: 00002B   E005  ldi R16, (1 << CS12) | (0 << CS11) | (1 << CS10)
-    73: 00002C   9300  sts TCCR1B, R16
-        00002D   0081
-    74: 
-    75:           ; Configure CTC
-    76: 00002E   E808  ldi R16, (1 << COM1A1) | (0 << COM1A0) | (1 << WGM12)
-    77: 00002F   9300  sts TCCR1A, R16
-        000030   0080
-    78: 
-    79:           ; configure OCR1A
-    80:           ; utilizar isso pra mostrar para o usuario quando errou talvez
-    81: 000031   E70B  ldi R16, 0x7B ;
-    82: 000032   E016  ldi R17, 0x06
-    83: 000033   9300  sts OCR1AL, R16
-        000034   0088
-    84: 000035   9300  sts OCR1AH, R16
-        000036   0089
-    85: 
-    86:           ; configure interruption
-    87: 000037   E001  ldi r16, (1 << TOIE1)
-    88: 000038   9300  sts TIMSK1, R16
-        000039   006F
-    89: 
-    90: 00003A   9508  ret
-    91: 
-    92: config_user_pointer:
-    93: 
-    94: 00003B   E0CD  ldi YL, LOW(user_sig_array)
-    95: 00003C   E0D1  ldi YH, HIGH(user_sig_array)
-    96: 
-    97: 00003D   9508  ret
-    98: 
-    99: ; Subrotinas para controle dos LEDs
-   100: check_ng_limit:
-   101: 
-   102:           ; Subrotina para verificação do comprimento da entrada
+    66: 	; Configura clk/256 e Modo CTC
+    67: 00002A   E00C  ldi	R16, (1 << CS12) | (1 << WGM12)
+    68: 00002B   9300  sts TCCR1B, R16
+        00002C   0081
+    69: 
+    70: 	; Configura para Clear on Compare Match
+    71: 00002D   E800  ldi R16, (1 << COM1A1)
+    72: 00002E   9300  sts TCCR1A, R16
+        00002F   0080
+    73: 
+    74: 	; Valor máximo do contador que para 1s é 31249
+    75: 000030   E101  ldi	R16, 0x11
+    76: 000031   E71A  ldi R17, 0x7A
+    77: 000032   9300  sts	OCR1AL, R16
+        000033   0088
+    78: 000034   9310  sts	OCR1AH, R17
+        000035   0089
+    79: 
+    80: 	; Configura Interrupção para overflow
+    81: 000036   9100  lds	R16, TIMSK1
+        000037   006F
+    82: 000038   6001  ori R16, (1 << TOIE1)
+    83: 000039   9300  sts TIMSK1, R16
+        00003A   006F
+    84: 
+    85: 00003B   9508  ret
+    86: 
+    87: ;=========================== SUBROTINA GERADORA DE SEQUÊNCIA ==========================;
+    88: GenerateSequence:
+    89: 	; Gera sequência de 100 números que variam de 0 a 3
+    90: 
+    91: 00003C   93EF  push ZL
+    92: 00003D   93FF  push ZH
+    93: 00003E   930F  push R16
+    94: 00003F   931F  push R17
+    95: 000040   932F  push R18
+    96: 000041   933F  push R19
+    97: 
+    98: 	; Gera primeira seed
+    99: 	;call GenerateSeed
+   100: 	;lds R16, lfsr_value
+   101: 000042   ED09  ldi R16, 0b11011001 ; Manual seed para simulação
+   102: 000043   9300  sts lfsr_value1, R16
+        000044   0124
    103: 
-   104: 00003E   9100  lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
-        00003F   0101
-   105: 000040   3100  cpi R16, 0x10 ; Tamanho máximo = 10
-   106: 000041   F019  breq jmp_reset ; Se N_RANDOM_SIG != 10 continua
-   107:            
-   108: 000042   940E  call get_random
-        000043   0047
+   104: 	; Gera segunda seed
+   105: 	;call GenerateSeed
+   106: 	;lds R16, lfsr_value
+   107: 000045   E80D  ldi R16, 0b10001101 ; Manual seed para simulação
+   108: 000046   9300  sts lfsr_value2, R16
+        000047   0125
    109: 
-   110: 000044   9508  ret
-   111: 
-   112:           jmp_reset:
-   113: 000045   940E  call reset  ; se igual reseta os valores
-        000046   00B6
-   114: 
-   115: get_random:
-   116: 
-   117:           ; Subrotina para ler da parte do Leo e adicionar na
-   118:           ; array
-   119: 
-   120: 000047   2700  clr R16
-   121: 000048   2711  clr R17
-   122: 
-   123: 
-   124:           ; Lê o valor e adiciona na not_genius_array
-   125:           ; Aqui trocar para a leitura da parte do codigo do leo
-   126: 
-   127: 000049   9593  inc R25
-   128: 
-   129: 00004A   939D  st X+, R25 
-   130: 
-   131:           ; Lê o valor atual da quantidade de sinais e incrementa
-   132: 
-   133: 00004B   9110  lds R17, N_RANDOM_SIG
-        00004C   0101
-   134: 00004D   9513  inc R17
-   135: 00004E   9310  sts N_RANDOM_SIG, R17
-        00004F   0101
-   136: 
-   137: 
-   138: 000050   9508  ret
-   139: 
-   140: turn_on_led:
+   110: 000048   E000  ldi R16, 0b0 ; Tamanho atual da sequência gerada
+   111: 000049   E012  ldi R17, 2 ; Tamanho total da sequência gerada
+   112: 00004A   E021  ldi R18, 0b1 ; Máscara para pegar o bit-0
+   113: 
+   114: 	; Configura ponteiro para a região de memória main_sequence em Z
+   115: 00004B   E1E8  ldi ZL, LOW(main_sequence)
+   116: 00004C   E0F1  ldi ZH, HIGH(main_sequence)
+   117: 
+   118: 	generate_sequence_element:
+   119: 		; Gera primeiro valor com LFSR
+   120: 00004D   9130  lds R19, lfsr_value1
+        00004E   0124
+   121: 00004F   9330  sts lfsr_value, R19
+        000050   0126
+   122: 000051   940E  call LFSR
+        000052   0076
+   123: 000053   9130  lds R19, lfsr_value
+        000054   0126
+   124: 000055   9330  sts lfsr_value1, R19
+        000056   0124
+   125: 		; Gera segundo valor com LFSR
+   126: 000057   9140  lds R20, lfsr_value2
+        000058   0125
+   127: 000059   9340  sts lfsr_value, R20
+        00005A   0126
+   128: 00005B   940E  call LFSR
+        00005C   0076
+   129: 00005D   9140  lds R20, lfsr_value
+        00005E   0126
+   130: 00005F   9340  sts lfsr_value2, R20
+        000060   0125
+   131: 
+   132: 		; Seleciona apenas o bit-0 de cada valor
+   133: 000061   2332  and R19, R18
+   134: 000062   2342  and R20, R18
+   135: 
+   136: 000063   0F44  lsl R20 ; Shifita segundo valor para esquerda
+   137: 000064   2B34  or R19, R20 ; Compõe o valor final
+   138: 
+   139: 000065   1701  cp R16, R17 ; Compara o tamanho atual com máximo
+   140: 000066   F029  breq sequence_generation_end ; Se tamanho atual = máximo, finaliza rotina
    141: 
-   142:           ; Função para ligar o LED
-   143: 
-   144: 000051   9170  lds R23, last_led_turned_on
-        000052   0117
-   145: 000053   B978  out PORTC, R23
-   146: 
-   147:           ;call keep_led_on  ; delay pra manter o LED ligado
-   148: 
-   149: 000054   2777  clr R23
-   150: 000055   B978  out PORTC, R23 
-   151: 
-   152: 000056   9508  ret
-   153: 
-   154: loop_in_signals:
-   155:           ; i == size ? break : keep
-   156: 000057   1723  cp R18, R19
-   157: 000058   F041  breq get_out
+   142: 000067   9331  st Z+, R19
+   143: 000068   9503  inc R16
+   144: 000069   9300  sts main_sequence_size, R16
+        00006A   0122
+   145: 
+   146: 00006B   CFE1  rjmp generate_sequence_element
+   147: 
+   148: 	sequence_generation_end:
+   149: 00006C   9503  inc R16
+   150: 00006D   9300  sts main_sequence_size, R16
+        00006E   0122
+   151: 00006F   913F  pop R19
+   152: 000070   912F  pop R18
+   153: 000071   911F  pop R17
+   154: 000072   910F  pop R16
+   155: 000073   91FF  pop ZH
+   156: 000074   91EF  pop ZL
+   157: 000075   9508  ret
    158: 
-   159:           ; carrega o valor da array do jogo, coloca em uma variavel de memoria
-   160: 000059   914D  ld R20, X+ ; array[n]
-   161: 
-   162: 00005A   9340  sts last_led_turned_on, R20  
-        00005B   0117
-   163: 
-   164:           ; mantem o led acesso por um tempo
-   165: 00005C   940E  call turn_on_led
-        00005D   0051
-   166: 
-   167:           ; continua no loop até finalizar
-   168: 00005E   9523  inc R18
-   169: 00005F   CFF7  rjmp loop_in_signals
-   170: 
-   171: 000060   9508  ret
-   172: 
+   159: LFSR:
+   160: 	; Faz um LFSR com os últimos dois bits de uma bitstring localizada em lfsr_value
+   161: 000076   930F  push R16
+   162: 000077   931F  push R17
+   163: 000078   932F  push R18
+   164: 000079   933F  push R19
+   165: 
+   166: 00007A   E001  ldi R16, 0b1 ; Máscara para pegar o bit-0
+   167: 00007B   E012  ldi R17, 0b10 ; Máscara para pegar o bit-1
+   168: 00007C   E72F  ldi R18, 0b01111111; Máscara para tirar o bit-7
+   169: 
+   170: 00007D   9130  lds R19, lfsr_value
+        00007E   0126
+   171: 00007F   2303  and R16, R19 ; Aplica a máscara bit-0 no seed
+   172: 000080   2313  and R17, R19 ; Aplica a máscara bit-1 no seed
    173: 
-   174:           get_out:
-   175: 000061   9508  ret
+   174: 000081   9516  lsr R17 ; Shifta bit-1 para posição de bit-0
+   175: 000082   2701  eor R16, R17 ; Faz xor entre os bits selecionados
    176: 
-   177: send_to_user:
-   178: 000062   E020  ldi R18, 0x00
-   179: 000063   9130  lds R19, N_RANDOM_SIG
-        000064   0101
-   180: 
-   181: 000065   940E  call config_ng_pointer
-        000066   0023
-   182: 
-   183: 000067   940E  call loop_in_signals
-        000068   0057
+   177: 000083   0F00  lsl R16
+   178: 000084   0F00  lsl R16
+   179: 000085   0F00  lsl R16
+   180: 000086   0F00  lsl R16
+   181: 000087   0F00  lsl R16
+   182: 000088   0F00  lsl R16
+   183: 000089   0F00  lsl R16
    184: 
-   185: 000069   9508  ret
-   186: 
-   187: read_from_user:
-   188: 
-   189:      ; Função de armazenamento dos valores do usuário
-   190: 
-   191:      ; ; define as mascaras dos pinos dos botoes:
-   192:      ; ldi R16, 0b00000001
-   193:      ; ldi R17, 0b00000010
-   194:      ; ldi R18, 0b00000100
-   195:      ; ldi R19, 0b00001000
+   185: 00008A   9536  lsr R19 ; Shifta o seed
+   186: 00008B   2332  and R19, R18 ; Aplica a máscara bit-7 no lfsr_value
+   187: 
+   188: 00008C   2B03  or R16, R19 ; Coloca o resultado da xor na primeira posição
+   189: 
+   190: 00008D   9300  sts lfsr_value, R16
+        00008E   0126
+   191: 
+   192: 00008F   913F  pop R19
+   193: 000090   912F  pop R18
+   194: 000091   911F  pop R17
+   195: 000092   910F  pop R16
    196: 
-   197:      ; in R20, PIND  ; faz a leitura da porta D
+   197: 000093   9508  ret
    198: 
-   199:      ; ; acho que não precisaria isso, mas vou manter pra gnt ter maior controle do que
-   200:      ; ; tá sendo encaminhado
-   201: 
-   202:      ; and R16, R20
-   203:      ; and R17, R20
-   204:      ; and R18, R20
-   205:      ; and R19, R20
+   199: GenerateSeed:
+   200: 	; Gera um seed fazendo uma conversão analógico-digital de ruído da porta
+   201: 000094   930F  push R16
+   202: 000095   931F  push R17
+   203: 
+   204: 000096   9100  lds	R16, ADCL
+        000097   0078
+   205: 000098   9110  lds	R17, ADCH
+        000099   0079
    206: 
-   207:      ; ; combina valores no R23
+   207: 00009A   9300  sts lfsr_value, R16
+        00009B   0126
    208: 
-   209:      ; clr R23
-   210: 
-   211:      ; or R23, R16
-   212:      ; or R23, R17
-   213:      ; or R23, R18
-   214:      ; or R23, R19
-   215: 
-   216: 00006A   E071  ldi R23, 0x01
-   217: 
-   218: 00006B   9379  st Y+, R23  ; adiciona no fim da array user_sig_array
-   219: 
-   220: 00006C   9110  lds R17, N_SIG_USER
-        00006D   010C
-   221: 00006E   9513  inc R17
-   222: 00006F   9310  sts N_SIG_USER, R17
-        000070   010C
-   223: 
-   224: 000071   9508  ret
-   225: 
-   226: 
-   227: check_user_inputs:
-   228:                ; Função que verifica a entrada do usuário
+   209: 00009C   911F  pop R17
+   210: 00009D   910F  pop R16
+   211: 
+   212: 00009E   9508  ret
+   213: ;======================================================================================;
+   214: 
+   215: ShowSequenceElement:
+   216: 00009F   930F  push R16
+   217: 0000A0   931F  push R17
+   218: 0000A1   932F  push R18
+   219: 0000A2   933F  push R19
+   220: 0000A3   934F  push R20
+   221: 
+   222: 0000A4   9100  lds R16, main_sequence_size
+        0000A5   0122
+   223: 0000A6   9110  lds R17, main_sequence_current_element
+        0000A7   0123
+   224: 
+   225: 0000A8   E041  ldi R20, 0b1
+   226: 0000A9   B943  out PINB, R20
+   227: 
+   228: 0000AA   C019  rjmp end_show_sequence_element
    229: 
-   230: 000072   940E  call config_ng_pointer
-        000073   0023
-   231: 000074   940E  call config_user_pointer
-        000075   003B
-   232: 
-   233: 000076   E020  ldi R18, 0x00
-   234: 000077   9130  lds R19, N_RANDOM_SIG
-        000078   0101
-   235: 
-   236: 000079   940E  call compare_arrays
-        00007A   007B
-   237: 
-   238: compare_arrays:
-   239: 
-   240: 00007B   1723  cp R18, R19  ; i == N_RANDOM_SIG ? break : keep
-   241: 00007C   F029  breq skip
-   242: 
-   243: 00007D   914C  ld R20, X  ; sinal do not genius
-   244: 00007E   8158  ld R21, Y  ; sinal do usuario
-   245: 
-   246: 00007F   1745  cp R20, R21  ; compara os valores
-   247: 000080   F011  breq continue_checking
-   248: 
-   249: 000081   C003  rjmp reset_and_skip
-   250: 
-   251:                skip:
-   252: 000082   9508  ret
-   253: 
-   254:                continue_checking:
-   255: 000083   9523  inc R18
-   256: 000084   CFF6  rjmp compare_arrays 
-   257: 
-   258:                reset_and_skip:
-   259: 000085   940E  call reset
-        000086   00B6
-   260: 000087   9508  ret
-   261: 
-   262: 
-   263: keep_led_on:
-   264:      ; Delay utilizado para mostrar o LED ligado para o usuário
-   265: 
-   266: 	; save R22, R23 and R24 to Stack
-   267: 000088   936F  push R22
-   268: 000089   937F  push R23
-   269: 00008A   938F  push R24
-   270: 
-   271: 	; max counter
-   272: 00008B   EA50  ldi R21, 0xA0
-   273: 
-   274: 	; initialize delay counters
-   275: 00008C   E060  LDI R22, 0x00
-   276: 00008D   E070  LDI R23, 0x00
-   277: 00008E   E080  LDI R24, 0x00
-   278: 
-   279: 	; initializes first delay
-   280: 	first_delay_led:
-   281: 00008F   9563  inc R22
-   282: 		; initializes second delay
-   283: 		second_delay_led:
-   284: 000090   9573  inc R23
-   285: 			; initializes third delay
-   286: 			third_delay_led:
-   287: 000091   9583  inc R24
-   288: 000092   1785  cp R24, R21
-   289: 000093   F7E9  brne third_delay_led ; if third delay counter R24 is different from max counter R21 repeat
-   290: 000094   E080  ldi R24, 0x00 ; else reset third delay counter R24
-   291: 
-   292: 000095   1775  cp R23, R21
-   293: 000096   F7C9  brne second_delay_led ; if second delay counter R23 is different from max counter R21 repeat
-   294: 000097   E070  ldi R23, 0x00 ; else reset second delay counter R23
-   295: 
-   296: 000098   1765  cp R22, R21
-   297: 000099   F7A9  brne first_delay_led ; if first delay counter R22 is different from max counter R21 repeat
-   298: 00009A   E060  ldi R22, 0x00 ; else reset second delay counter R22
+   230: 0000AB   1701  cp R16, R17
+   231: 0000AC   F0B9  breq end_show_sequence_element
+   232: 0000AD   912D  ld R18, X+
+   233: 
+   234: 0000AE   3020  cpi R18, 0b00
+   235: 0000AF   F041  breq turn_on_led_0
+   236: 0000B0   3021  cpi R18, 0b01
+   237: 0000B1   F049  breq turn_on_led_1
+   238: 0000B2   3022  cpi R18, 0b10
+   239: 0000B3   F051  breq turn_on_led_2
+   240: 0000B4   C00C  rjmp turn_on_led_3
+   241: 
+   242: 0000B5   9513  inc R17
+   243: 0000B6   9310  sts main_sequence_current_element, R17
+        0000B7   0123
+   244: 
+   245: 	turn_on_led_0:
+   246: 0000B8   E041  ldi R20, 0b1
+   247: 0000B9   B943  out PINB, R20
+   248: 0000BA   C009  rjmp end_show_sequence_element
+   249: 
+   250: 	turn_on_led_1:
+   251: 0000BB   E042  ldi R20, 0b10
+   252: 0000BC   B943  out PINB, R20
+   253: 0000BD   C006  rjmp end_show_sequence_element
+   254: 
+   255: 	turn_on_led_2:
+   256: 0000BE   E044  ldi R20, 0b100
+   257: 0000BF   B943  out PINB, R20
+   258: 0000C0   C003  rjmp end_show_sequence_element
+   259: 
+   260: 	turn_on_led_3:
+   261: 0000C1   E048  ldi R20, 0b1000
+   262: 0000C2   B943  out PINB, R20
+   263: 0000C3   C000  rjmp end_show_sequence_element
+   264: 
+   265: 	end_show_sequence_element:
+   266: 0000C4   914F  pop R20
+   267: 0000C5   913F  pop R19
+   268: 0000C6   912F  pop R18
+   269: 0000C7   911F  pop R17
+   270: 0000C8   910F  pop R16
+   271: 0000C9   9518  reti
+   272: 
+   273: ; Subrotinas para configuração
+   274: config_leds:
+   275: 
+   276:             ; configura as portas em que os LEDs vão estar conectados
+   277: 
+   278: 0000CA   E00F  ldi r16, (1 << PC3) | (1 << PC2) | (1 << PC1) | ( 1 << PC0)
+   279: 0000CB   2733  clr R19  ; seta o estado inicial como desligado
+   280: 
+   281: 0000CC   B907  out DDRC, R16
+   282: 0000CD   B938  out PORTC, R19
+   283: 
+   284: 0000CE   9508  ret
+   285: 
+   286: 
+   287: config_buttons:
+   288: 
+   289:                ; Configura a porta D para receber os quatro botões
+   290: 
+   291: 0000CF   E00F  ldi R16, (1 << PD0) | (1 << PD1) | (1 << PD2) | (1 << PD3)
+   292: 0000D0   B90A  out DDRD, R16
+   293: 0000D1   9508  ret
+   294: 
+   295: config_ng_pointer:
+   296: 
+   297: 0000D2   E0A2  ldi XL, LOW(not_genius_array)
+   298: 0000D3   E0B1  ldi XH, HIGH(not_genius_array)
    299: 
-   300: 	; retrieve R23 and R24 to Stack
-   301: 00009B   918F  pop R24
-   302: 00009C   917F  pop R23
-   303: 00009D   916F  pop R22
-   304: 
-   305: 00009E   9508  ret
-   306: 
-   307: delay:
+   300: 0000D4   9508  ret
+   301: 
+   302: config_timer:
+   303: 
+   304:           ; Clear counter
+   305: 0000D5   2700  clr R16
+   306: 0000D6   9300  sts TCNT1L, R16
+        0000D7   0084
+   307: 0000D8   9300  sts TCNT1H, R16
+        0000D9   0085
    308: 
-   309:      ; Delay para esperar a resposta do usuário
-   310: 
-   311: 	; save R22, R23 and R24 to Stack
-   312: 00009F   936F  push R22
-   313: 0000A0   937F  push R23
-   314: 0000A1   938F  push R24
-   315: 
-   316: 	; max counter
-   317: 0000A2   EA50  ldi R21, 0xA0
-   318: 
-   319: 	; initialize delay counters
-   320: 0000A3   E060  LDI R22, 0x00
-   321: 0000A4   E070  LDI R23, 0x00
-   322: 0000A5   E080  LDI R24, 0x00
+   309:           ; Configure Clock Selection
+   310: 0000DA   E005  ldi R16, (1 << CS12) | (0 << CS11) | (1 << CS10)
+   311: 0000DB   9300  sts TCCR1B, R16
+        0000DC   0081
+   312: 
+   313:           ; Configure CTC
+   314: 0000DD   E808  ldi R16, (1 << COM1A1) | (0 << COM1A0) | (1 << WGM12)
+   315: 0000DE   9300  sts TCCR1A, R16
+        0000DF   0080
+   316: 
+   317:           ; configure OCR1A
+   318:           ; utilizar isso pra mostrar para o usuario quando errou talvez
+   319: 0000E0   E70B  ldi R16, 0x7B ;
+   320: 0000E1   E016  ldi R17, 0x06
+   321: 0000E2   9300  sts OCR1AL, R16
+        0000E3   0088
+   322: 0000E4   9300  sts OCR1AH, R16
+        0000E5   0089
    323: 
-   324: 	; initializes first delay
-   325: 	first_delay:
-   326: 0000A6   9563  inc R22
-   327: 		; initializes second delay
-   328: 		second_delay:
-   329: 0000A7   9573  inc R23
-   330: 			; initializes third delay
-   331: 			third_delay:
-   332: 0000A8   9583  inc R24
-   333: 0000A9   1785  cp R24, R21
-   334: 0000AA   F7E9  brne third_delay ; if third delay counter R24 is different from max counter R21 repeat
-   335: 0000AB   E080  ldi R24, 0x00 ; else reset third delay counter R24
+   324:           ; configure interruption
+   325: 0000E6   E001  ldi r16, (1 << TOIE1)
+   326: 0000E7   9300  sts TIMSK1, R16
+        0000E8   006F
+   327: 
+   328: 0000E9   9508  ret
+   329: 
+   330: config_user_pointer:
+   331: 
+   332: 0000EA   E0CD  ldi YL, LOW(user_sig_array)
+   333: 0000EB   E0D1  ldi YH, HIGH(user_sig_array)
+   334: 
+   335: 0000EC   9508  ret
    336: 
-   337: 0000AC   1775  cp R23, R21
-   338: 0000AD   F7C9  brne second_delay ; if second delay counter R23 is different from max counter R21 repeat
-   339: 0000AE   E070  ldi R23, 0x00 ; else reset second delay counter R23
-   340: 
-   341: 0000AF   1765  cp R22, R21
-   342: 0000B0   F7A9  brne first_delay ; if first delay counter R22 is different from max counter R21 repeat
-   343: 0000B1   E060  ldi R22, 0x00 ; else reset second delay counter R22
-   344: 
-   345: 	; retrieve R23 and R24 to Stack
-   346: 0000B2   918F  pop R24
-   347: 0000B3   917F  pop R23
-   348: 0000B4   916F  pop R22
+   337: ; Subrotinas para controle dos LEDs
+   338: check_ng_limit:
+   339: 
+   340:           ; Subrotina para verificação do comprimento da entrada
+   341: 
+   342: 0000ED   9100  lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
+        0000EE   0101
+   343: 0000EF   3002  cpi R16, 0x02 ; Tamanho máximo = 10
+   344: 0000F0   F019  breq jmp_reset ; Se N_RANDOM_SIG != 10 continua
+   345: 
+   346: 0000F1   940E  call get_random
+        0000F2   00F6
+   347: 
+   348: 0000F3   9508  ret
    349: 
-   350: 0000B5   9508  ret
-   351: 
-   352: reset:
-   353:      ; reset memory values
+   350:           jmp_reset:
+   351: 0000F4   940E  call reset  ; se igual reseta os valores
+        0000F5   018E
+   352: 
+   353: get_random:
    354: 
-   355:      ; reset number of random signals sent
-   356: 0000B6   2700  clr R16
-   357: 0000B7   9300  sts N_RANDOM_SIG, R16
-        0000B8   0101
-   358: 
-   359: 0000B9   9300  sts N_SIG_USER, R16
-        0000BA   010C
+   355:           ; Subrotina para ler da parte do Leo e adicionar na
+   356:           ; array
+   357: 
+   358: 0000F6   2700  clr R16
+   359: 0000F7   2711  clr R17
    360: 
-   361: 0000BB   9508  ret
+   361:           ; Máscaras de pinos
    362: 
-   363: 
-   364: MAIN:
-   365:      ; Realiza as configurações necessárias
-   366:      initialize_stack
-   366: 0000BC   E008  ldi R16, HIGH(RAMEND)
-   366: 0000BD   BF0E  out SPH, R16
-   366: 0000BE   EF0F  ldi R16, LOW(RAMEND)
-   366: 0000BF   BF0D  out SPL, R16
-   367: 0000C0   940E  call config_buttons
-        0000C1   0020
-   368: 0000C2   940E  call config_leds
-        0000C3   001B
-   369: 0000C4   940E  call config_ng_pointer
-        0000C5   0023
-   370: 0000C6   940E  call config_timer
-        0000C7   0026
-   371: 0000C8   940E  call config_user_pointer
-        0000C9   003B
+   363: 0000F8   E021  ldi R18, 0b00000001
+   364: 0000F9   E032  ldi R19, 0b00000010
+   365: 0000FA   E044  ldi R20, 0b00000100
+   366: 0000FB   E058  ldi R21, 0b00001000
+   367: 
+   368: 
+   369:           ; Lê o valor e adiciona na not_genius_array
+   370: 
+   371: 0000FC   9191  ld R25, Z+ ; lê o valor da sequencia gerada para adicionar no jogo
    372: 
-   373:      ; Permite interrupções
-   374: 0000CA   9478  sei
+   373: 0000FD   3090  cpi R25, 0x00
+   374: 0000FE   F031  breq fisrt_led_mask
    375: 
-   376:      ; Inicia a flag para ignorar o usuário
-   377: 0000CB   EF0F  ser R16
-   378: 0000CC   9300  sts IGNORE_USER, R16
-        0000CD   0100
-   379: 
-   380: 0000CE   E090  ldi R25, 0x00
+   376: 0000FF   3091  cpi R25, 0x01
+   377: 000100   F031  breq second_led_mask
+   378: 
+   379: 000101   3092  cpi R25, 0x02
+   380: 000102   F031  breq third_led_mask
    381: 
-   382: 
-   383: 0000CF   2700  clr R16
-   384: 0000D0   9300  sts N_RANDOM_SIG, R16
-        0000D1   0101
-   385: 
-   386: 0000D2   9300  sts N_SIG_USER, R16
-        0000D3   010C
-   387: 
+   382: 000103   3093  cpi R25, 0x03
+   383: 000104   F031  breq fourth_led_mask
+   384: 
+   385:           fisrt_led_mask:
+   386: 000105   932D  st X+, R18
+   387: 000106   C006  rjmp inc_number_signals
    388: 
-   389:      ; Inicia o processo
-   390:      NOT_GENIUS_GAME:
-   391: 0000D4   940E  call check_ng_limit
-        0000D5   003E
-   392: 0000D6   940E  call send_to_user
-        0000D7   0062
-   393: 
-   394: 0000D8   940E  call config_user_pointer
-        0000D9   003B
-   395:                     
-   396:                     ;call delay  ; espera um tempo até o usuário se decidir
-   397: 
-   398: 0000DA   940E  call read_from_user;
-        0000DB   006A
-   399: 
-   400: 0000DC   940E  call check_user_inputs  ; checa os valores que ele entrou
-        0000DD   0072
-   401: 
-   402: 0000DE   CFF5  rjmp NOT_GENIUS_GAME
+   389:           second_led_mask:
+   390: 000107   933D  st X+, R19
+   391: 000108   C004  rjmp inc_number_signals
+   392: 
+   393:           third_led_mask:
+   394: 000109   934D  st X+, R20
+   395: 00010A   C002  rjmp inc_number_signals
+   396: 
+   397:           fourth_led_mask:
+   398: 00010B   935D  st X+, R21
+   399: 00010C   C000  rjmp inc_number_signals
+   400: 
+   401:           inc_number_signals:
+   402:                              ; Lê o valor atual da quantidade de sinais e incrementa
    403: 
-   404: 
-   405: 
-   406: 
-   407: 0000DF   CFFF  rjmp LOOP
-   408: 
+   404: 00010D   9110  lds R17, N_RANDOM_SIG
+        00010E   0101
+   405: 00010F   9513  inc R17
+   406: 000110   9310  sts N_RANDOM_SIG, R17
+        000111   0101
+   407: 
+   408: 000112   9508  ret
+   409: 
+   410: turn_on_led:
+   411: 
+   412:           ; Função para ligar o LED
+   413: 
+   414: 000113   9170  lds R23, last_led_turned_on
+        000114   0117
+   415: 000115   B978  out PORTC, R23
+   416: 
+   417:           ;call keep_led_on  ; delay pra manter o LED ligado
+   418: 
+   419: 000116   2777  clr R23
+   420: 000117   B978  out PORTC, R23
+   421: 
+   422: 000118   9508  ret
+   423: 
+   424: loop_in_signals:
+   425:           ; i == size ? break : keep
+   426: 000119   1723  cp R18, R19
+   427: 00011A   F041  breq get_out
+   428: 
+   429:           ; carrega o valor da array do jogo, coloca em uma variavel de memoria
+   430: 00011B   914D  ld R20, X+ ; array[n]
+   431: 
+   432: 00011C   9340  sts last_led_turned_on, R20
+        00011D   0117
+   433: 
+   434:           ; mantem o led acesso por um tempo
+   435: 00011E   940E  call turn_on_led
+        00011F   0113
+   436: 
+   437:           ; continua no loop até finalizar
+   438: 000120   9523  inc R18
+   439: 000121   CFF7  rjmp loop_in_signals
+   440: 
+   441: 000122   9508  ret
+   442: 
+   443: 
+   444:           get_out:
+   445: 000123   9508  ret
+   446: 
+   447: send_to_user:
+   448: 000124   E020  ldi R18, 0x00
+   449: 000125   9130  lds R19, N_RANDOM_SIG
+        000126   0101
+   450: 
+   451: 000127   940E  call config_ng_pointer
+        000128   00D2
+   452: 
+   453: 000129   940E  call loop_in_signals
+        00012A   0119
+   454: 
+   455: 00012B   9508  ret
+   456: 
+   457: read_from_user:
+   458:      ; Função de armazenamento dos valores do usuário
+   459: 
+   460:      ; Veirifica se pode ignorar as entradas do usuario
+   461: 00012C   9100  lds R16, IGNORE_USER
+        00012D   0100
+   462: 00012E   3F0F  cpi R16, 0xff
+   463: 00012F   F0B9  breq ignore_user_breq
+   464: 
+   465: 000130   179A  cp R25, R26
+   466: 000131   F0B9  breq enough_inputs
+   467: 
+   468:      ; define as mascaras dos pinos dos botoes:
+   469: 000132   E001  ldi R16, 0b00000001
+   470: 000133   E012  ldi R17, 0b00000010
+   471: 000134   E024  ldi R18, 0b00000100
+   472: 000135   E038  ldi R19, 0b00001000
+   473: 
+   474: 000136   B149  in R20, PIND  ; faz a leitura da porta D
+   475: 
+   476:      ; acho que não precisaria isso, mas vou manter pra gnt ter maior controle do que
+   477:      ; tá sendo encaminhado
+   478: 
+   479: 000137   2304  and R16, R20
+   480: 000138   2314  and R17, R20
+   481: 000139   2324  and R18, R20
+   482: 00013A   2334  and R19, R20
+   483: 
+   484:      ; combina valores no R23
+   485: 
+   486: 00013B   2777  clr R23
+   487: 
+   488: 00013C   2B70  or R23, R16
+   489: 00013D   2B71  or R23, R17
+   490: 00013E   2B72  or R23, R18
+   491: 00013F   2B73  or R23, R19
+   492: 
+   493:      ; ldi R23, 0x01
+   494: 
+   495: 000140   9379  st Y+, R23  ; adiciona no fim da array user_sig_array
+   496: 
+   497: 000141   9190  lds R25, N_SIG_USER
+        000142   010C
+   498: 000143   9593  inc R25
+   499: 000144   9390  sts N_SIG_USER, R25
+        000145   010C
+   500: 
+   501: 
+   502: 000146   CFE5  rjmp read_from_user
+   503: 
+   504: 
+   505:      ignore_user_breq:
+   506: 000147   2700  clr R16
+   507: 000148   9508  ret
+   508: 
+   509:      enough_inputs:
+   510: 000149   9508  ret
+   511: 
+   512: 
+   513: check_user_inputs:
+   514:                ; Função que verifica a entrada do usuário
+   515: 
+   516: 00014A   940E  call config_ng_pointer
+        00014B   00D2
+   517: 00014C   940E  call config_user_pointer
+        00014D   00EA
+   518: 
+   519: 00014E   E020  ldi R18, 0x00
+   520: 00014F   9130  lds R19, N_RANDOM_SIG
+        000150   0101
+   521: 
+   522: 000151   940E  call compare_arrays
+        000152   0153
+   523: 
+   524: compare_arrays:
+   525: 
+   526: 000153   1723  cp R18, R19  ; i == N_RANDOM_SIG ? break : keep
+   527: 000154   F029  breq skip
+   528: 
+   529: 000155   914D  ld R20, X+  ; sinal do not genius
+   530: 000156   9159  ld R21, Y+  ; sinal do usuario
+   531: 
+   532: 000157   1745  cp R20, R21  ; compara os valores
+   533: 000158   F011  breq continue_checking
+   534: 
+   535: 000159   C003  rjmp reset_and_skip
+   536: 
+   537:                skip:
+   538: 00015A   9508  ret
+   539: 
+   540:                continue_checking:
+   541: 00015B   9523  inc R18
+   542: 00015C   CFF6  rjmp compare_arrays
+   543: 
+   544:                reset_and_skip:
+   545: 00015D   940E  call reset
+        00015E   018E
+   546: 00015F   9508  ret
+   547: 
+   548: 
+   549: keep_led_on:
+   550:      ; Delay utilizado para mostrar o LED ligado para o usuário
+   551: 
+   552: 	; save R22, R23 and R24 to Stack
+   553: 000160   936F  push R22
+   554: 000161   937F  push R23
+   555: 000162   938F  push R24
+   556: 
+   557: 	; max counter
+   558: 000163   EA50  ldi R21, 0xA0
+   559: 
+   560: 	; initialize delay counters
+   561: 000164   E060  LDI R22, 0x00
+   562: 000165   E070  LDI R23, 0x00
+   563: 000166   E080  LDI R24, 0x00
+   564: 
+   565: 	; initializes first delay
+   566: 	first_delay_led:
+   567: 000167   9563  inc R22
+   568: 		; initializes second delay
+   569: 		second_delay_led:
+   570: 000168   9573  inc R23
+   571: 			; initializes third delay
+   572: 			third_delay_led:
+   573: 000169   9583  inc R24
+   574: 00016A   1785  cp R24, R21
+   575: 00016B   F7E9  brne third_delay_led ; if third delay counter R24 is different from max counter R21 repeat
+   576: 00016C   E080  ldi R24, 0x00 ; else reset third delay counter R24
+   577: 
+   578: 00016D   1775  cp R23, R21
+   579: 00016E   F7C9  brne second_delay_led ; if second delay counter R23 is different from max counter R21 repeat
+   580: 00016F   E070  ldi R23, 0x00 ; else reset second delay counter R23
+   581: 
+   582: 000170   1765  cp R22, R21
+   583: 000171   F7A9  brne first_delay_led ; if first delay counter R22 is different from max counter R21 repeat
+   584: 000172   E060  ldi R22, 0x00 ; else reset second delay counter R22
+   585: 
+   586: 	; retrieve R23 and R24 to Stack
+   587: 000173   918F  pop R24
+   588: 000174   917F  pop R23
+   589: 000175   916F  pop R22
+   590: 
+   591: 000176   9508  ret
+   592: 
+   593: delay:
+   594: 
+   595:      ; Delay para esperar a resposta do usuário
+   596: 
+   597: 	; save R22, R23 and R24 to Stack
+   598: 000177   936F  push R22
+   599: 000178   937F  push R23
+   600: 000179   938F  push R24
+   601: 
+   602: 	; max counter
+   603: 00017A   EA50  ldi R21, 0xA0
+   604: 
+   605: 	; initialize delay counters
+   606: 00017B   E060  LDI R22, 0x00
+   607: 00017C   E070  LDI R23, 0x00
+   608: 00017D   E080  LDI R24, 0x00
+   609: 
+   610: 	; initializes first delay
+   611: 	first_delay:
+   612: 00017E   9563  inc R22
+   613: 		; initializes second delay
+   614: 		second_delay:
+   615: 00017F   9573  inc R23
+   616: 			; initializes third delay
+   617: 			third_delay:
+   618: 000180   9583  inc R24
+   619: 000181   1785  cp R24, R21
+   620: 000182   F7E9  brne third_delay ; if third delay counter R24 is different from max counter R21 repeat
+   621: 000183   E080  ldi R24, 0x00 ; else reset third delay counter R24
+   622: 
+   623: 000184   1775  cp R23, R21
+   624: 000185   F7C9  brne second_delay ; if second delay counter R23 is different from max counter R21 repeat
+   625: 000186   E070  ldi R23, 0x00 ; else reset second delay counter R23
+   626: 
+   627: 000187   1765  cp R22, R21
+   628: 000188   F7A9  brne first_delay ; if first delay counter R22 is different from max counter R21 repeat
+   629: 000189   E060  ldi R22, 0x00 ; else reset second delay counter R22
+   630: 
+   631: 	; retrieve R23 and R24 to Stack
+   632: 00018A   918F  pop R24
+   633: 00018B   917F  pop R23
+   634: 00018C   916F  pop R22
+   635: 
+   636: 00018D   9508  ret
+   637: 
+   638: reset:
+   639:      ; reset memory values
+   640: 
+   641:      ; reset number of random signals sent
+   642: 00018E   2700  clr R16
+   643: 00018F   9300  sts N_RANDOM_SIG, R16
+        000190   0101
+   644: 
+   645: 000191   9300  sts N_SIG_USER, R16
+        000192   010C
+   646: 
+   647: 000193   C03A  rjmp LOOP
+   648: 
+   649: 
+   650: MAIN: initialize_stack
+   650: 000194   E008  ldi R16, HIGH(RAMEND)
+   650: 000195   BF0E  out SPH, R16
+   650: 000196   EF0F  ldi R16, LOW(RAMEND)
+   650: 000197   BF0D  out SPL, R16
+   651:      ; Realiza as configurações necessárias
+   652: 000198   940E  call config_buttons
+        000199   00CF
+   653: 00019A   940E  call config_leds
+        00019B   00CA
+   654: 00019C   940E  call config_ng_pointer
+        00019D   00D2
+   655: 00019E   940E  call config_timer
+        00019F   00D5
+   656: 0001A0   940E  call config_user_pointer
+        0001A1   00EA
+   657: 
+   658: 0001A2   940E  call ConfigureAdc0
+        0001A3   001B
+   659: 0001A4   940E  call ConfigureTimer
+        0001A5   0025
+   660: 0001A6   940E  call GenerateSequence
+        0001A7   003C
+   661: 
+   662: 	; Configura para mostrar lista a partir do zero
+   663: 0001A8   2700  clr R16
+   664: 0001A9   9300  sts main_sequence_current_element, R16
+        0001AA   0123
+   665: 0001AB   9300  sts counter, R16
+        0001AC   0127
+   666: 
+   667:      ; Permite interrupções
+   668: 0001AD   9478  sei
+   669: 
+   670:      ; Inicia a flag para ignorar o usuário
+   671: 0001AE   EF0F  ser R16
+   672: 0001AF   9300  sts IGNORE_USER, R16
+        0001B0   0100
+   673: 
+   674: 0001B1   2700  clr R16
+   675: 0001B2   9300  sts N_RANDOM_SIG, R16
+        0001B3   0101
+   676: 0001B4   9300  sts N_SIG_USER, R16
+        0001B5   010C
+   677: 
+   678: 0001B6   E1E8  ldi ZL, LOW(main_sequence)
+   679: 0001B7   E0F1  ldi ZH, HIGH(main_sequence)
+   680: 
+   681:      ; Inicia o processo
+   682:      NOT_GENIUS_GAME:
+   683: 
+   684: 
+   685: 0001B8   940E  call check_ng_limit
+        0001B9   00ED
+   686: 0001BA   940E  call send_to_user
+        0001BB   0124
+   687: 
+   688: 0001BC   940E  call config_user_pointer
+        0001BD   00EA
+   689: 
+   690:                     ; entradas do usuário valem
+   691: 0001BE   2700  clr R16
+   692: 0001BF   9300  sts IGNORE_USER, R16
+        0001C0   0100
+   693: 
+   694:                     ; call delay  ; espera um tempo até o usuário se decidir
+   695: 
+   696:                     ; Inicializa as variaveis
+   697: 0001C1   2799  clr R25
+   698: 0001C2   9390  sts N_SIG_USER, R25
+        0001C3   010C
+   699: 0001C4   91A0  lds R26, N_RANDOM_SIG
+        0001C5   0101
+   700: 
+   701: 0001C6   940E  call read_from_user  ; testes de funcionamento
+        0001C7   012C
+   702: 
+   703: 0001C8   940E  call check_user_inputs  ; checa os valores que ele entrou
+        0001C9   014A
+   704: 
+   705:                     ; retorna a ignorar o usuario
+   706: 0001CA   EF0F  ser R16
+   707: 0001CB   9300  sts IGNORE_USER, R16
+        0001CC   0100
+   708: 
+   709: 0001CD   CFEA  rjmp NOT_GENIUS_GAME
+   710: 
+   711: 
+   712: 
+   713: 
+   714: 0001CE   CFFF  rjmp LOOP
+   715: 
 
 List of symbols:
 Type nDef nUsed             Decimalval           Hexval Name
   T     1     1                    171               AB ATMEGA328P
-  L     1     1                    256             0100 IGNORE_USER
-  L     1     7                    257             0101 N_RANDOM_SIG
+  L     1     4                    256             0100 IGNORE_USER
+  L     1     8                    257             0101 N_RANDOM_SIG
   L     1     2                    258             0102 NOT_GENIUS_ARRAY
-  L     1     4                    268             010C N_SIG_USER
+  L     1     5                    268             010C N_SIG_USER
   L     1     2                    269             010D USER_SIG_ARRAY
   L     1     2                    279             0117 LAST_LED_TURNED_ON
-  L     1     1                     27               1B CONFIG_LEDS
-  L     1     1                     32               20 CONFIG_BUTTONS
-  L     1     3                     35               23 CONFIG_NG_POINTER
-  L     1     1                     38               26 CONFIG_TIMER
-  L     1     3                     59               3B CONFIG_USER_POINTER
-  L     1     1                     62               3E CHECK_NG_LIMIT
-  L     1     2                     69               45 JMP_RESET
-  L     1     1                     71               47 GET_RANDOM
-  L     1     1                     81               51 TURN_ON_LED
-  L     1     3                     87               57 LOOP_IN_SIGNALS
-  L     1     2                     97               61 GET_OUT
-  L     1     1                     98               62 SEND_TO_USER
-  L     1     3                    106               6A READ_FROM_USER
-  L     1     1                    114               72 CHECK_USER_INPUTS
-  L     1     3                    123               7B COMPARE_ARRAYS
-  L     1     2                    130               82 SKIP
-  L     1     2                    131               83 CONTINUE_CHECKING
-  L     1     2                    133               85 RESET_AND_SKIP
-  L     1     0                    136               88 KEEP_LED_ON
-  L     1     2                    143               8F FIRST_DELAY_LED
-  L     1     2                    144               90 SECOND_DELAY_LED
-  L     1     2                    145               91 THIRD_DELAY_LED
-  L     1     0                    159               9F DELAY
-  L     1     2                    166               A6 FIRST_DELAY
-  L     1     2                    167               A7 SECOND_DELAY
-  L     1     2                    168               A8 THIRD_DELAY
-  L     1     2                    182               B6 RESET
-  L     1     2                    188               BC MAIN
-  L     1     2                    212               D4 NOT_GENIUS_GAME
-  L     1     2                    223               DF LOOP
+  L     1     4                    280             0118 MAIN_SEQUENCE
+  L     1     3                    290             0122 MAIN_SEQUENCE_SIZE
+  L     1     3                    291             0123 MAIN_SEQUENCE_CURRENT_ELEMENT
+  L     1     3                    292             0124 LFSR_VALUE1
+  L     1     3                    293             0125 LFSR_VALUE2
+  L     1     7                    294             0126 LFSR_VALUE
+  L     1     1                    295             0127 COUNTER
+  L     1     1                     27               1B CONFIGUREADC0
+  L     1     1                     37               25 CONFIGURETIMER
+  L     1     1                     60               3C GENERATESEQUENCE
+  L     1     2                     77               4D GENERATE_SEQUENCE_ELEMENT
+  L     1     2                    108               6C SEQUENCE_GENERATION_END
+  L     1     2                    118               76 LFSR
+  L     1     0                    148               94 GENERATESEED
+  L     1     0                    159               9F SHOWSEQUENCEELEMENT
+  L     1     2                    184               B8 TURN_ON_LED_0
+  L     1     2                    187               BB TURN_ON_LED_1
+  L     1     2                    190               BE TURN_ON_LED_2
+  L     1     2                    193               C1 TURN_ON_LED_3
+  L     1    12                    196               C4 END_SHOW_SEQUENCE_ELEMENT
+  L     1     1                    202               CA CONFIG_LEDS
+  L     1     1                    207               CF CONFIG_BUTTONS
+  L     1     3                    210               D2 CONFIG_NG_POINTER
+  L     1     1                    213               D5 CONFIG_TIMER
+  L     1     3                    234               EA CONFIG_USER_POINTER
+  L     1     1                    237               ED CHECK_NG_LIMIT
+  L     1     2                    244               F4 JMP_RESET
+  L     1     1                    246               F6 GET_RANDOM
+  L     1     2                    261             0105 FISRT_LED_MASK
+  L     1     2                    263             0107 SECOND_LED_MASK
+  L     1     2                    265             0109 THIRD_LED_MASK
+  L     1     2                    267             010B FOURTH_LED_MASK
+  L     1     8                    269             010D INC_NUMBER_SIGNALS
+  L     1     1                    275             0113 TURN_ON_LED
+  L     1     3                    281             0119 LOOP_IN_SIGNALS
+  L     1     2                    291             0123 GET_OUT
+  L     1     1                    292             0124 SEND_TO_USER
+  L     1     5                    300             012C READ_FROM_USER
+  L     1     2                    327             0147 IGNORE_USER_BREQ
+  L     1     2                    329             0149 ENOUGH_INPUTS
+  L     1     1                    330             014A CHECK_USER_INPUTS
+  L     1     3                    339             0153 COMPARE_ARRAYS
+  L     1     2                    346             015A SKIP
+  L     1     2                    347             015B CONTINUE_CHECKING
+  L     1     2                    349             015D RESET_AND_SKIP
+  L     1     0                    352             0160 KEEP_LED_ON
+  L     1     2                    359             0167 FIRST_DELAY_LED
+  L     1     2                    360             0168 SECOND_DELAY_LED
+  L     1     2                    361             0169 THIRD_DELAY_LED
+  L     1     0                    375             0177 DELAY
+  L     1     2                    382             017E FIRST_DELAY
+  L     1     2                    383             017F SECOND_DELAY
+  L     1     2                    384             0180 THIRD_DELAY
+  L     1     2                    398             018E RESET
+  L     1     2                    404             0194 MAIN
+  L     1     2                    440             01B8 NOT_GENIUS_GAME
+  L     1     4                    462             01CE LOOP
   C     1     0                     22               16 NOW_Y
-  C     1     0                      9               09 NOW_M
-  C     1     0                     20               14 NOW_D
-  C     1     0                  44824             AF18 NOW_I
+  C     1     0                     10               0A NOW_M
+  C     1     0                      4               04 NOW_D
+  C     1     0                  44838             AF26 NOW_I
 
 List of macros:
 nLines nUsed nParams Name
      4     1       0 INITIALIZE_STACK
 
-Program             :      199 words.
+Program             :      438 words.
 Constants           :        0 words.
-Total program memory:      199 words.
+Total program memory:      438 words.
 Eeprom space        :        0 bytes.
-Data segment        :       24 bytes.
+Data segment        :       40 bytes.
 Compilation completed, no errors.
-Compilation ended 20.09.2022, 18:20:50
+Compilation ended 04.10.2022, 08:25:34

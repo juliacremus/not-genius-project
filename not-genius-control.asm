@@ -28,6 +28,7 @@ rjmp read_from_user
 	lfsr_value1: .byte 1 ; Seed para o LFSR 1
 	lfsr_value2: .byte 1 ; Seed para o LFSR 2
 	lfsr_value: .byte 1
+     counter: .byte 1
 .cseg
 
 ; Initialize stack
@@ -82,13 +83,13 @@ ConfigureTimer:
 	sts TIMSK1, R16
 
 	ret
-;======================================================================================;
-;============================= SUBROTINA GERADORA DE SEQUÊNCIA =============================;
+
+;=========================== SUBROTINA GERADORA DE SEQUÊNCIA ==========================;
 GenerateSequence:
 	; Gera sequência de 100 números que variam de 0 a 3
 
-	push XL
-	push XH
+	push ZL
+	push ZH
 	push R16
 	push R17
 	push R18
@@ -107,12 +108,12 @@ GenerateSequence:
 	sts lfsr_value2, R16
 
 	ldi R16, 0b0 ; Tamanho atual da sequência gerada
-	ldi R17, 10 ; Tamanho total da sequência gerada
+	ldi R17, 2 ; Tamanho total da sequência gerada
 	ldi R18, 0b1 ; Máscara para pegar o bit-0
 
-	; Configura ponteiro para a região de memória main_sequence em X
-	ldi XL, LOW(main_sequence)
-	ldi XH, HIGH(main_sequence)
+	; Configura ponteiro para a região de memória main_sequence em Z
+	ldi ZL, LOW(main_sequence)
+	ldi ZH, HIGH(main_sequence)
 
 	generate_sequence_element:
 		; Gera primeiro valor com LFSR
@@ -138,7 +139,7 @@ GenerateSequence:
 		cp R16, R17 ; Compara o tamanho atual com máximo
 		breq sequence_generation_end ; Se tamanho atual = máximo, finaliza rotina
 
-		st X+, R19
+		st Z+, R19
 		inc R16
 		sts main_sequence_size, R16
 
@@ -151,8 +152,8 @@ GenerateSequence:
 		pop R18
 		pop R17
 		pop R16
-		pop XH
-		pop XL
+		pop ZH
+		pop ZL
 		ret
 
 LFSR:
@@ -209,7 +210,7 @@ GenerateSeed:
 	pop R16
 
 	ret
-;===========================================================================================;
+;======================================================================================;
 
 ShowSequenceElement:
 	push R16
@@ -339,7 +340,7 @@ check_ng_limit:
           ; Subrotina para verificação do comprimento da entrada
 
           lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
-          cpi R16, 0x10 ; Tamanho máximo = 10
+          cpi R16, 0x02 ; Tamanho máximo = 10
           breq jmp_reset ; Se N_RANDOM_SIG != 10 continua
 
           call get_random
@@ -357,22 +358,54 @@ get_random:
           clr R16
           clr R17
 
+          ; Máscaras de pinos
+
+          ldi R18, 0b00000001
+          ldi R19, 0b00000010
+          ldi R20, 0b00000100
+          ldi R21, 0b00001000
+
 
           ; Lê o valor e adiciona na not_genius_array
-          ; Aqui trocar para a leitura da parte do codigo do leo
 
-          inc R25
+          ld R25, Z+ ; lê o valor da sequencia gerada para adicionar no jogo
 
-          st X+, R25
+          cpi R25, 0x00
+          breq fisrt_led_mask
 
-          ; Lê o valor atual da quantidade de sinais e incrementa
+          cpi R25, 0x01
+          breq second_led_mask
 
-          lds R17, N_RANDOM_SIG
-          inc R17
-          sts N_RANDOM_SIG, R17
+          cpi R25, 0x02
+          breq third_led_mask
 
+          cpi R25, 0x03
+          breq fourth_led_mask
 
-          ret
+          fisrt_led_mask:
+                         st X+, R18
+                         rjmp inc_number_signals
+
+          second_led_mask:
+                         st X+, R19
+                         rjmp inc_number_signals
+
+          third_led_mask:
+                         st X+, R20
+                         rjmp inc_number_signals
+
+          fourth_led_mask:
+                         st X+, R21
+                         rjmp inc_number_signals
+
+          inc_number_signals:
+                             ; Lê o valor atual da quantidade de sinais e incrementa
+
+                             lds R17, N_RANDOM_SIG
+                             inc R17
+                             sts N_RANDOM_SIG, R17
+
+                             ret
 
 turn_on_led:
 
@@ -427,7 +460,10 @@ read_from_user:
      ; Veirifica se pode ignorar as entradas do usuario
      lds R16, IGNORE_USER
      cpi R16, 0xff
-     breq ignore_user
+     breq ignore_user_breq
+
+     cp R25, R26
+     breq enough_inputs
 
      ; define as mascaras dos pinos dos botoes:
      ldi R16, 0b00000001
@@ -458,14 +494,20 @@ read_from_user:
 
      st Y+, R23  ; adiciona no fim da array user_sig_array
 
-     lds R17, N_SIG_USER
-     inc R17
-     sts N_SIG_USER, R17
+     lds R25, N_SIG_USER
+     inc R25
+     sts N_SIG_USER, R25
 
-     ; ret
 
-     ignore_user:
+     rjmp read_from_user
+
+
+     ignore_user_breq:
           clr R16
+          ret
+
+     enough_inputs:
+          ret
 
 
 check_user_inputs:
@@ -484,8 +526,8 @@ compare_arrays:
                cp R18, R19  ; i == N_RANDOM_SIG ? break : keep
                breq skip
 
-               ld R20, X  ; sinal do not genius
-               ld R21, Y  ; sinal do usuario
+               ld R20, X+  ; sinal do not genius
+               ld R21, Y+  ; sinal do usuario
 
                cp R20, R21  ; compara os valores
                breq continue_checking
@@ -602,7 +644,7 @@ reset:
 
      sts N_SIG_USER, R16
 
-     ret
+     rjmp LOOP
 
 
 MAIN: initialize_stack
@@ -629,17 +671,17 @@ MAIN: initialize_stack
      ser R16
      sts IGNORE_USER, R16
 
-     ldi R25, 0x00  ; parte do codigo pra debugar
-
-
      clr R16
      sts N_RANDOM_SIG, R16
-
      sts N_SIG_USER, R16
 
+	   ldi ZL, LOW(main_sequence)
+	   ldi ZH, HIGH(main_sequence)
 
      ; Inicia o processo
      NOT_GENIUS_GAME:
+
+
                     call check_ng_limit
                     call send_to_user
 
@@ -649,9 +691,14 @@ MAIN: initialize_stack
                     clr R16
                     sts IGNORE_USER, R16
 
-                    call delay  ; espera um tempo até o usuário se decidir
+                    ; call delay  ; espera um tempo até o usuário se decidir
 
-                    ; call read_from_user  ; testes de funcionamento
+                    ; Inicializa as variaveis
+                    clr R25
+                    sts N_SIG_USER, R25
+                    lds R26, N_RANDOM_SIG
+
+                    call read_from_user  ; testes de funcionamento
 
                     call check_user_inputs  ; checa os valores que ele entrou
 
