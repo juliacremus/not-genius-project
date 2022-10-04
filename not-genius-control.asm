@@ -22,6 +22,12 @@ rjmp read_from_user
 
      last_led_turned_on: .byte 1  ; variavel pra armazenar a mascara do último pino ligado
 
+	main_sequence: .byte 10 ; Sequência Principal
+	main_sequence_size: .byte 1 ; Tamanho da Sequência Principal
+	main_sequence_current_element: .byte 1 ; Elemento de sequência atual a ser mostrado
+	lfsr_value1: .byte 1 ; Seed para o LFSR 1
+	lfsr_value2: .byte 1 ; Seed para o LFSR 2
+	lfsr_value: .byte 1
 .cseg
 
 ; Initialize stack
@@ -31,6 +37,235 @@ rjmp read_from_user
        ldi R16, LOW(RAMEND)
        out SPL, R16
 .endmacro
+
+;============================= SUBROTINAS DE CONFIGURAÇÃO =============================;
+ConfigureAdc0:
+	; Configure AVcc
+	;ldi R16, (1 << REFS0)
+	ldi R16, 0b01000000
+	sts ADMUX, R16
+
+	; Configure ADC Enable, Start Conversion, Auto Trigger Enable, Prescaler 1:32
+	;ldi R16, (1 << ADEN) | (1 << ADSC) | (1 << ADATE) | (1 << ADPS2) | (1 << ADPS0)
+	ldi R16, 0b11100101
+	sts ADCSRA, R16
+
+	; Configure Duty cycle
+	clr R16
+	sts ADCSRB, R16
+
+	ret
+
+ConfigureTimer:
+	; Zera o contador
+	clr R16
+	sts TCNT1L, R16
+	sts TCNT1H, R16
+
+	; Configura clk/256 e Modo CTC
+	ldi	R16, (1 << CS12) | (1 << WGM12)
+	sts TCCR1B, R16
+
+	; Configura para Clear on Compare Match
+	ldi R16, (1 << COM1A1)
+	sts TCCR1A, R16
+
+	; Valor máximo do contador que para 1s é 31249
+	ldi	R16, 0x11
+	ldi R17, 0x7A
+	sts	OCR1AL, R16
+	sts	OCR1AH, R17
+
+	; Configura Interrupção para overflow
+	lds	R16, TIMSK1
+	ori R16, (1 << TOIE1)
+	sts TIMSK1, R16
+
+	ret
+;======================================================================================;
+;============================= SUBROTINA GERADORA DE SEQUÊNCIA =============================;
+GenerateSequence:
+	; Gera sequência de 100 números que variam de 0 a 3
+
+	push XL
+	push XH
+	push R16
+	push R17
+	push R18
+	push R19
+
+	; Gera primeira seed
+	call GenerateSeed
+	lds R16, lfsr_value
+	sts lfsr_value1, R16
+
+	; Gera segunda seed
+	call GenerateSeed
+	lds R16, lfsr_value
+	sts lfsr_value2, R16
+
+	ldi R16, 0b0 ; Tamanho atual da sequência gerada
+	ldi R17, 10 ; Tamanho total da sequência gerada
+	ldi R18, 0b1 ; Máscara para pegar o bit-0
+
+	; Configura ponteiro para a região de memória main_sequence em X
+	ldi XL, LOW(main_sequence)
+	ldi XH, HIGH(main_sequence)
+
+	generate_sequence_element:
+		; Gera primeiro valor com LFSR
+		lds R19, lfsr_value1
+		sts lfsr_value, R19
+		call LFSR
+		lds R19, lfsr_value
+		sts lfsr_value1, R19
+		; Gera segundo valor com LFSR
+		lds R20, lfsr_value2
+		sts lfsr_value, R20
+		call LFSR
+		lds R20, lfsr_value
+		sts lfsr_value2, R20
+
+		; Seleciona apenas o bit-0 de cada valor
+		and R19, R18
+		and R20, R18
+
+		lsl R20 ; Shifita segundo valor para esquerda
+		or R19, R20 ; Compõe o valor final
+
+		cp R16, R17 ; Compara o tamanho atual com máximo
+		breq sequence_generation_end ; Se tamanho atual = máximo, finaliza rotina
+
+		st X+, R19
+		inc R16
+		sts main_sequence_size, R16
+
+		rjmp generate_sequence_element
+
+	sequence_generation_end:
+		inc R16
+		sts main_sequence_size, R16
+		pop R19
+		pop R18
+		pop R17
+		pop R16
+		pop XH
+		pop XL
+		ret
+
+LFSR:
+	; Faz um LFSR com os últimos dois bits de uma bitstring localizada em lfsr_value
+	push R16
+	push R17
+	push R18
+	push R19
+
+	ldi R16, 0b1 ; Máscara para pegar o bit-0
+	ldi R17, 0b10 ; Máscara para pegar o bit-1
+	ldi R18, 0b01111111; Máscara para tirar o bit-7
+
+	lds R19, lfsr_value
+	and R16, R19 ; Aplica a máscara bit-0 no seed
+	and R17, R19 ; Aplica a máscara bit-1 no seed
+
+	lsr R17 ; Shifta bit-1 para posição de bit-0
+	eor R16, R17 ; Faz xor entre os bits selecionados
+
+	lsl R16
+	lsl R16
+	lsl R16
+	lsl R16
+	lsl R16
+	lsl R16
+	lsl R16
+
+	lsr R19 ; Shifta o seed
+	and R19, R18 ; Aplica a máscara bit-7 no lfsr_value
+
+	or R16, R19 ; Coloca o resultado da xor na primeira posição
+
+	sts lfsr_value, R16
+
+	pop R19
+	pop R18
+	pop R17
+	pop R16
+
+	ret
+
+GenerateSeed:
+	; Gera um seed fazendo uma conversão analógico-digital de ruído da porta
+	push R16
+	push R17
+
+	lds	R16, ADCL
+	lds	R17, ADCH
+
+	sts lfsr_value, R16
+
+	pop R17
+	pop R16
+
+	ret
+;===========================================================================================;
+
+ShowSequenceElement:
+	push R16
+	push R17
+	push R18
+	push R19
+	push R20
+
+	lds R16, main_sequence_size
+	lds R17, main_sequence_current_element
+
+	ldi R20, 0b1
+	out PINB, R20
+
+	rjmp end_show_sequence_element
+
+	cp R16, R17
+	breq end_show_sequence_element
+	ld R18, X+
+
+	cpi R18, 0b00
+	breq turn_on_led_0
+	cpi R18, 0b01
+	breq turn_on_led_1
+	cpi R18, 0b10
+	breq turn_on_led_2
+	rjmp turn_on_led_3
+
+	inc R17
+	sts main_sequence_current_element, R17
+
+	turn_on_led_0:
+		ldi R20, 0b1
+		out PINB, R20
+		rjmp end_show_sequence_element
+
+	turn_on_led_1:
+		ldi R20, 0b10
+		out PINB, R20
+		rjmp end_show_sequence_element
+
+	turn_on_led_2:
+		ldi R20, 0b100
+		out PINB, R20
+		rjmp end_show_sequence_element
+
+	turn_on_led_3:
+		ldi R20, 0b1000
+		out PINB, R20
+		rjmp end_show_sequence_element
+
+	end_show_sequence_element:
+		pop R20
+		pop R19
+		pop R18
+		pop R17
+		pop R16
+		reti
 
 ; Subrotinas para configuração
 config_leds:
@@ -104,7 +339,7 @@ check_ng_limit:
           lds R16, N_RANDOM_SIG ; Carrega o tamanho atual em R16
           cpi R16, 0x10 ; Tamanho máximo = 10
           breq jmp_reset ; Se N_RANDOM_SIG != 10 continua
-           
+
           call get_random
 
           ret
@@ -126,7 +361,7 @@ get_random:
 
           inc R25
 
-          st X+, R25 
+          st X+, R25
 
           ; Lê o valor atual da quantidade de sinais e incrementa
 
@@ -147,7 +382,7 @@ turn_on_led:
           ;call keep_led_on  ; delay pra manter o LED ligado
 
           clr R23
-          out PORTC, R23 
+          out PORTC, R23
 
           ret
 
@@ -159,7 +394,7 @@ loop_in_signals:
           ; carrega o valor da array do jogo, coloca em uma variavel de memoria
           ld R20, X+ ; array[n]
 
-          sts last_led_turned_on, R20  
+          sts last_led_turned_on, R20
 
           ; mantem o led acesso por um tempo
           call turn_on_led
@@ -188,7 +423,7 @@ read_from_user:
      ; Função de armazenamento dos valores do usuário
 
      ; Veirifica se pode ignorar as entradas do usuario
-     lds R16, IGNORE_USER  
+     lds R16, IGNORE_USER
      cpi R16, 0xff
      breq ignore_user
 
@@ -227,7 +462,7 @@ read_from_user:
 
      ; ret
 
-     ignore_user: 
+     ignore_user:
           clr R16
 
 
@@ -260,7 +495,7 @@ compare_arrays:
 
                continue_checking:
                     inc R18
-                    rjmp compare_arrays 
+                    rjmp compare_arrays
 
                reset_and_skip:
                     call reset
@@ -368,14 +603,22 @@ reset:
      ret
 
 
-MAIN:
+MAIN: initialize_stack
      ; Realiza as configurações necessárias
-     initialize_stack
      call config_buttons
      call config_leds
      call config_ng_pointer
      call config_timer
      call config_user_pointer
+
+	call ConfigureAdc0
+	call ConfigureTimer
+	call GenerateSequence
+
+	; Configura para mostrar lista a partir do zero
+	clr R16
+	sts main_sequence_current_element, R16
+	sts counter, R16
 
      ; Permite interrupções
      sei
@@ -400,13 +643,13 @@ MAIN:
 
                     call config_user_pointer
 
-                    ; entradas do usuário valem 
+                    ; entradas do usuário valem
                     clr R16
                     sts IGNORE_USER, R16
-                    
+
                     call delay  ; espera um tempo até o usuário se decidir
 
-                    ; call read_from_user  ; testes de funcionamento  
+                    ; call read_from_user  ; testes de funcionamento
 
                     call check_user_inputs  ; checa os valores que ele entrou
 
